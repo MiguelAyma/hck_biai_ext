@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Botsi Chat",
+  "version": "2.0.0",
+  "description": "Extension de chat con IA para analizar contenido web",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icon1.png",
+      "48": "icon1.png",
+      "128": "icon1.png"
+    },
+    "default_title": "Botsi Chat"
+  },
+  "icons": {
+    "16": "icon1.png",
+    "48": "icon1.png",
+    "128": "icon1.png"
+  },
+  "host_permissions": ["<all_urls>"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.html", "turndown.min.js", "icon1.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["geminiService.js", "translatorService.js", "contentScript.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

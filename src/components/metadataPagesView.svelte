@@ -1,0 +1,460 @@
+<script lang="ts">
+  import {
+    projectStore,
+    activeProject,
+    activePagesStore,
+  } from "../stores/projectStore";
+  import { extractAndAddMetadata, extraImageCurrentPage } from "../services/metadataExtractor.service";
+  import FolderIcon from "../icons/folderIcon.svelte";
+  import TrashIcon from "../icons/trashIcon.svelte";
+  import PlusIcon from "../icons/plusIcon.svelte";
+  import PhotoIcon from "../icons/photoIcon.svelte";
+  import { onMount } from "svelte";
+
+  let isAdding = false;
+  let showProjectSelector = false;
+  let showNewProjectModal = false;
+  let showProjectsMenu = false;
+  let newProjectName = "";
+  let nameCurrentPage: string | null = null;
+
+  async function handleAddPage(projectId: string) {
+    isAdding = true;
+    showProjectSelector = false;
+    await extractAndAddMetadata(projectId);
+    isAdding = false;
+  }
+
+  async function handleRemovePage(id: string) {
+    await projectStore.removePage(id);
+  }
+
+  async function handleCreateProject() {
+    if (newProjectName.trim()) {
+      await projectStore.createProject(newProjectName.trim());
+      newProjectName = "";
+      showNewProjectModal = false;
+    }
+  }
+
+  async function handleDeleteProject(id: string) {
+    if (
+      confirm(
+        "¿Estás seguro? Se eliminarán todas las páginas de este proyecto."
+      )
+    ) {
+      await projectStore.deleteProject(id);
+      showProjectsMenu = false;
+    }
+  }
+
+  function formatDate(timestamp: number): string {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  function truncateText(text: string, maxLength: number): string {
+    if (!text) return "";
+    return text.length > maxLength
+      ? text.substring(0, maxLength) + "..."
+      : text;
+  }
+
+  function handleClickOutsideProjectSelector(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target.closest(".project-selector-container")) {
+      showProjectSelector = false;
+    }
+  }
+
+  function handleClickOutsideProjectsMenu(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target.closest(".projects-menu-container")) {
+      showProjectsMenu = false;
+    }
+  }
+
+  $: if (showProjectSelector) {
+    document.addEventListener("click", handleClickOutsideProjectSelector);
+  } else {
+    document.removeEventListener("click", handleClickOutsideProjectSelector);
+  }
+
+  $: if (showProjectsMenu) {
+    document.addEventListener("click", handleClickOutsideProjectsMenu);
+  } else {
+    document.removeEventListener("click", handleClickOutsideProjectsMenu);
+  }
+
+  onMount(async () => {
+    nameCurrentPage = await extraImageCurrentPage();
+  });
+</script>
+
+<div class="content-container p-4">
+  
+  <div class="mb-4">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2 flex-1">
+        <div class="relative projects-menu-container">
+          <button
+            on:click={() => (showProjectsMenu = !showProjectsMenu)}
+            class="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all group"
+          >
+            <span class="text-2xl">{$activeProject?.icon || "📁"}</span>
+            <div class="text-left">
+              <div class="text-sm font-semibold text-gray-900 flex items-center gap-1">
+                {$activeProject?.name || "General"}
+                <svg
+                  class="w-4 h-4 text-gray-400 transition-transform"
+                  class:rotate-180={showProjectsMenu}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </div>
+              <div class="text-xs text-gray-500">
+                {$activeProject?.pageCount || 0} páginas
+              </div>
+            </div>
+          </button>
+
+          {#if showProjectsMenu}
+            <div
+              class="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden"
+            >
+              <div class="p-2 border-b border-gray-100">
+                <div class="text-xs font-semibold text-gray-500 px-2 py-1">
+                  MIS PROYECTOS
+                </div>
+              </div>
+
+              <div class="max-h-64 overflow-y-auto">
+                {#each $projectStore.projects as project (project.id)}
+                  <button
+                    on:click={() => {
+                      projectStore.setActiveProject(project.id);
+                      showProjectsMenu = false;
+                    }}
+                    class="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors group"
+                    class:bg-indigo-50={project.id ===
+                      $projectStore.activeProjectId}
+                  >
+                    <span class="text-2xl">{project.icon}</span>
+                    <div class="flex-1 text-left">
+                      <div
+                        class="text-sm font-medium text-gray-900 flex items-center gap-2"
+                      >
+                        {project.name}
+                        {#if project.id === $projectStore.activeProjectId}
+                          <svg
+                            class="w-4 h-4 text-black"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fill-rule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clip-rule="evenodd"
+                            />
+                          </svg>
+                        {/if}
+                      </div>
+                      <div class="text-xs text-gray-500">
+                        {project.pageCount} páginas
+                      </div>
+                    </div>
+                    {#if project.id !== "default-project"}
+                      <button
+                        on:click|stopPropagation={() =>
+                          handleDeleteProject(project.id)}
+                        class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
+                        title="Eliminar proyecto"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+
+              <div class="p-2 border-t border-gray-100">
+                <button
+                  on:click={() => {
+                    showNewProjectModal = true;
+                    showProjectsMenu = false;
+                  }}
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-black hover:bg-black rounded-lg transition-colors"
+                >
+                  <PlusIcon className="w-4 h-4" />
+                  Crear Nuevo Proyecto
+                </button>
+              </div>
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <div class="relative project-selector-container">
+        <button
+          on:click={() => (showProjectSelector = !showProjectSelector)}
+          disabled={isAdding || $projectStore.isLoading}
+          class="px-4 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          {#if isAdding}
+            <div class="flex gap-1">
+              <div
+                class="w-1.5 h-1.5 bg-white rounded-full animate-bounce"
+                style="animation-delay: 0ms;"
+              ></div>
+              <div
+                class="w-1.5 h-1.5 bg-white rounded-full animate-bounce"
+                style="animation-delay: 150ms;"
+              ></div>
+              <div
+                class="w-1.5 h-1.5 bg-white rounded-full animate-bounce"
+                style="animation-delay: 300ms;"
+              ></div>
+            </div>
+            <span>Agregando...</span>
+          {:else}
+            <img class="w-4 h-4" src={nameCurrentPage} alt="">
+            <PlusIcon className="w-5 h-5" />
+            <span>Add this website</span>
+          {/if}
+        </button>
+
+        {#if showProjectSelector && !isAdding}
+          <div
+            class="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden"
+          >
+            <div class="p-2">
+              <div class="text-xs font-semibold text-gray-500 px-2 py-1 mb-1">
+                AGREGAR A PROYECTO
+              </div>
+              {#each $projectStore.projects as project (project.id)}
+                <button
+                  on:click={() => handleAddPage(project.id)}
+                  class="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-lg transition-colors text-left"
+                >
+                  <span class="text-xl">{project.icon}</span>
+                  <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">
+                      {project.name}
+                    </div>
+                    <div class="text-xs text-gray-500">
+                      {project.pageCount} páginas
+                    </div>
+                  </div>
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+
+  {#if $projectStore.hasError}
+    <div
+      class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+    >
+      <p class="font-medium">Error:</p>
+      <p>{$projectStore.errorMessage}</p>
+    </div>
+  {/if}
+
+
+  {#if $activePagesStore.length === 0}
+    <div class="text-center py-16">
+      <div
+        class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl flex items-center justify-center"
+      >
+        <FolderIcon className="w-10 h-10 text-gray-400" />
+      </div>
+      <p class="text-gray-500 text-base mb-2">No hay páginas en este proyecto</p>
+      <p class="text-gray-400 text-sm">
+        Haz clic en "Agregar" para guardar una página
+      </p>
+    </div>
+  {:else}
+    <div class="space-y-3">
+      {#each $activePagesStore as item (item.id)}
+        <div
+          class="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-gray-300 transition-all duration-200"
+        >
+          <div class="flex gap-3">
+            <div class="flex-shrink-0">
+              {#if item.image}
+                <img
+                  src={item.image}
+                  alt={item.title}
+                  class="w-20 h-20 object-cover rounded-lg"
+                  on:error={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              {:else}
+                <div
+                  class="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center"
+                >
+                  <PhotoIcon className="w-10 h-10 text-gray-400" />
+                </div>
+              {/if}
+            </div>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-start justify-between gap-2 mb-1">
+                <h3
+                  class="font-semibold text-gray-900 text-sm leading-snug line-clamp-2"
+                >
+                  {item.title || "Sin título"}
+                </h3>
+                <button
+                  on:click={() => handleRemovePage(item.id)}
+                  class="flex-shrink-0 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                  title="Eliminar"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+
+              {#if item.description}
+                <p class="text-xs text-gray-600 mb-2 line-clamp-2">
+                  {truncateText(item.description, 120)}
+                </p>
+              {/if}
+
+              <div class="flex items-center gap-2 flex-wrap">
+                {#if item.favicon}
+                  <img
+                    src={item.favicon}
+                    alt=""
+                    class="w-4 h-4 rounded"
+                    on:error={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                {/if}
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs text-blue-600 hover:underline truncate max-w-[200px]"
+                >
+                  {new URL(item.url).hostname}
+                </a>
+                <span class="text-xs text-gray-400">•</span>
+                <span class="text-xs text-gray-500">
+                  {formatDate(item.addedAt)}
+                </span>
+              </div>
+
+              {#if item.author}
+                <div class="mt-1 text-xs text-gray-500">
+                  <span class="font-medium">Por:</span>
+                  {item.author}
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</div>
+
+
+{#if showNewProjectModal}
+  <div
+    class="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4"
+    on:click={(e) => {
+      if (e.target === e.currentTarget) showNewProjectModal = false;
+    }}
+  >
+    <div
+      class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+      on:click|stopPropagation
+    >
+      <div class="p-6 border-b border-gray-100">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xl font-bold text-gray-900">Nuevo Proyecto</h3>
+          <button
+            on:click={() => (showNewProjectModal = false)}
+            class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6">
+        <label
+          for="project-name"
+          class="block text-sm font-medium text-gray-700 mb-2"
+        >
+          Nombre del proyecto
+        </label>
+        <input
+          id="project-name"
+          type="text"
+          bind:value={newProjectName}
+          placeholder="Ej: Proyecto Personal, Trabajo, etc."
+          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-shadow"
+          on:keydown={(e) => {
+            if (e.key === "Enter") handleCreateProject();
+          }}
+          autofocus
+        />
+      </div>
+
+      <div class="px-6 py-4 bg-gray-50 flex gap-3 justify-end">
+        <button
+          on:click={() => (showNewProjectModal = false)}
+          class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          Cancelar
+        </button>
+        <button
+          on:click={handleCreateProject}
+          disabled={!newProjectName.trim()}
+          class="px-4 py-2 text-sm font-medium bg-black text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          Crear Proyecto
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>

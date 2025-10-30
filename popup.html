@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Botsi Chat</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        max-width: 250px;
+        display: flex;
+        flex-direction: column;
+        height: 590px;
+        box-sizing: border-box;
+
+        background: white;
+        border-radius: 12px;
+        font-family: sans-serif;
+
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      html::-webkit-scrollbar,
+      body::-webkit-scrollbar {
+        display: none;
+      }
+
+      #app {
+        width: 420px;
+        height: 720px;
+        display: flex;
+        flex-direction: column;
+        /* overflow: hidden; */
+        flex: 1;
+
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      #app::-webkit-scrollbar {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      // Comunicación iframe y content script
+      window.addEventListener("message", (event) => {
+        if (event.data.action === "closeChat") {
+          const iframe = document.getElementById("botsi-container");
+          if (iframe) {
+            iframe.classList.add("closing");
+            setTimeout(() => {
+              iframe.remove();
+            }, 300);
+          }
+        }
+      });
+    </script>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
