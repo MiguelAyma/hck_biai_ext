@@ -1,4 +1,6 @@
+import { createPageId } from "../utils/createPageId";
 import { projectsStore, type Webpage } from "../stores/projectsStore";
+import { extractPlainTextMarkdown } from "./contentExtrator.service";
 
 // Script que se ejecuta en el contexto de la página
 function extractMetadataScript() {
@@ -118,29 +120,12 @@ class MetadataExtractorService {
   }
 
   /**
-   * Genera un ID único basado en la URL usando Base64
-   */
-  private createPageId(url: string): string {
-    if (!url || typeof url !== "string") {
-      throw new Error("URL inválida para generar ID");
-    }
-    try {
-      // btoa() convierte la URL a Base64
-      const base64 = btoa(url);
-      return `page-${base64}`;
-    } catch (error) {
-      console.error("Error encoding URL to Base64:", error);
-      throw new Error("No se pudo generar el ID de la página");
-    }
-  }
-
-  /**
    * Convierte metadata extraída a formato Webpage
    */
   private metadataToWebpage(
     metadata: ExtractedMetadata
   ): Omit<Webpage, "addedAt"> & { id: string } {
-    const id = this.createPageId(metadata.url);
+    const id = createPageId(metadata.url);
 
     return {
       id,
@@ -185,7 +170,7 @@ class MetadataExtractorService {
     }
   }
 
-  /**
+  /**extractAndAddIfNew
    * Extrae la metadata de la página actual y la añade al proyecto especificado
    */
   async extractAndAddToProject(projectId: string): Promise<void> {
@@ -198,6 +183,8 @@ class MetadataExtractorService {
       const webpage = await this.metadataToWebpage(metadata);
 
       await projectsStore.addWebpage(projectId, webpage);
+      // await extractPlainTextMarkdown(tab.url, projectId);
+      //projectsStore.setStrippedMarkdown(plainTextMarkdownStore.content);
 
       console.log("Metadata extracted and added to project:", {
         projectId,
@@ -233,21 +220,34 @@ class MetadataExtractorService {
     return exists;
   }
 
+  // const extractFullMarkdownPlain = async (url: string) => {
+  //   try {
+  //     console.log("URL extraida:", url);
+  //     await extractPlainTextMarkdown(url);
+  //     console.log("Markdown extraido:", $plainTextMarkdownStore.content);
+  //   } catch (error) {
+  //     console.error("Error extracting markdown:", error);
+  //     return "";
+  //   }
+  // };
+
   /**
    * Extrae y añade metadata solo si la URL no existe en el proyecto
    */
-  async extractAndAddIfNew(projectId: string): Promise<boolean> {
+
+  async extractAndAddIfNew(projectId: string): Promise<string> {
     try {
       const tab = await this.getActiveTab();
       const currentUrl = tab.url || "";
 
       if (this.isUrlInProject(projectId, currentUrl)) {
         console.log("URL already exists in project:", currentUrl);
-        return false;
+        return "";
       }
 
       await this.extractAndAddToProject(projectId);
-      return true;
+      // await extractPlainTextMarkdown(currentUrl);
+      return currentUrl;
     } catch (error) {
       console.error("Error in extractAndAddIfNew:", error);
       throw error;

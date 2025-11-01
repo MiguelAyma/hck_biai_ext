@@ -1,3 +1,4 @@
+import { createPageId } from "../utils/createPageId";
 import { writable, derived } from "svelte/store";
 import type { Writable } from "svelte/store";
 
@@ -189,7 +190,7 @@ function createProjectsStore() {
       update((state) => {
         const newWebpage: Webpage = {
           ...webpage,
-          id: `page-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: createPageId(webpage.url),
           addedAt: Date.now(),
         };
 
@@ -334,6 +335,12 @@ function createProjectsStore() {
       webpageId: string,
       strippedMarkdown: string
     ) => {
+      console.log(
+        "setStrippedMarkdown",
+        projectId,
+        webpageId,
+        strippedMarkdown
+      );
       update((state) => {
         const newState = {
           ...state,
