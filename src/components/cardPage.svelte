@@ -123,12 +123,12 @@
       }, '*');
       console.log(`Petición 'requestClean' enviada (ID: ${currentCleanId})`);
 
-      window.parent.postMessage({
-        action: 'requestSummary', //requestSummary nombre del evento a ejecutar en contentScript.js
-        content,
-        length,
-        requestId
-      }, '*');
+      // window.parent.postMessage({
+      //   action: 'requestSummary', //requestSummary nombre del evento a ejecutar en contentScript.js
+      //   content,
+      //   length,
+      //   requestId
+      // }, '*');
     } catch (error) {
       console.error('Error al enviar petición de limpieza:', error);
       statusInfo = `Error: ${error.message}`;
