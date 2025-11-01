@@ -11,6 +11,7 @@
     fullMarkdownStore,
     plainTextMarkdownStore,
     textOnlyMarkdownStore,
+    cleanMarkdownByIaStore
   } from './stores/contentStore';
 
   import { notificationStore } from './stores/notificationStore';
@@ -23,10 +24,9 @@
     extractRawMarkdown, 
     extractTextOnlyMarkdown 
   } from './services/contentExtrator.service';
-  import RawMarkdownView from './components/rawMarkdownView.svelte';
+  //import RawMarkdownView from './components/rawMarkdownView.svelte';
 
-
-  let currentView: ViewType = 'chat';
+  let currentView: ViewType = 'investigation';
   let chatMessages: ChatMessage[] = [];
 
   onMount(async () => {
@@ -108,26 +108,24 @@
       userMessage: message,
       placeholderId: botPlaceholder.id
     });
-  }
-
+  } 
 </script>
 
 <div class="min-h-dvh flex flex-col">
   <Header />
-    
   <main>
     {#if currentView === 'chat'}
       <ChatView messages={chatMessages} />
     {:else if currentView === 'markdown'}
     <!-- <RawMarkdownView content={$plainTextMarkdownStore.content} /> -->
-      <ContentView content={$fullMarkdownStore.content} />
+      <ContentView content={$plainTextMarkdownStore.content} />
     {:else if currentView === 'summaries'}
-      <SummariesView content={$textOnlyMarkdownStore.content} />
+      <!-- <SummariesView content={$textOnlyMarkdownStore.content} /> -->
+      <SummariesView content={$cleanMarkdownByIaStore.content} />
     {:else if currentView === 'investigation'}
       <MetadataPagesView />
     {/if}
   </main>
-  
   <Footer 
     {currentView}
     on:switchView={(e) => switchView(e.detail.view)}

@@ -51,5 +51,231 @@ class GeminiService {
   }
 }
 
+class GeminiNanoCleaner {
+  constructor() {
+    this.activeSessions = new Map();
+  }
+
+  /**
+   * Cancela una solicitud (sesión de plantilla) en progreso.
+   */
+  cancelRequest(requestId) {
+    const session = this.activeSessions.get(requestId);
+    if (session && typeof session.destroy === 'function') {
+      try {
+        session.destroy();
+        this.activeSessions.delete(requestId);
+        console.log(`GeminiNano: Sesión de plantilla ${requestId} cancelada.`);
+      } catch (e) {
+        console.error("Error al destruir la sesión:", e);
+      }
+    }
+  }
+
+  /**
+   * PASO 1: Genera el resumen de contexto.
+   */
+  async _generateContextSummary(structuredData, requestId) {
+    let summarySession = null;
+    let totalTokens = 0;
+    let mainTopicSummary = "General Content";
+
+    try {
+      const mainTitleSection = structuredData.find(section => section.level === 1);
+      let contextText = "";
+      if (mainTitleSection) {
+        contextText += mainTitleSection.title + "\n\n";
+        const longParagraphs = mainTitleSection.paragraphs
+          .filter(p => p.text.split(/\s+/).length > 15)
+          .slice(-2);
+        contextText += longParagraphs.map(p => p.text).join("\n\n");
+      } else {
+        contextText = (structuredData[0]?.title || "").substring(0, 500);
+      }
+
+      if (contextText.trim()) {
+        // !!! RELLENA TU PROMPT DE RESUMEN AQUÍ !!!
+        const summaryPrompt = `Analyze the following text, which starts with an H1 title.
+Your goal is to identify and summarize the **main informational or academic topic** in one very short sentence (under 15 words).
+**IMPORTANT:** Actively **IGNORE** any initial text that seems like:
+- Lists of locations (e.g., "Madrid", "Sevilla", "Barcelona")
+- Contact forms or privacy policy text
+- Promotional offers or navigation links
+
+Focus ONLY on summarizing the core subject suggested by the H1 title and the main descriptive paragraphs.
+Example Output: "Entity-Relationship Models for databases."
+
+Text to Analyze:
+${contextText}`;
+
+        summarySession = await self.LanguageModel.create({
+          temperature: 0.2,
+          topK: 3
+        });
+        this.activeSessions.set(requestId, summarySession);
+
+        const usage = await summarySession.measureInputUsage({ prompt: summaryPrompt });
+        totalTokens = usage.totalTokens;
+        mainTopicSummary = await summarySession.prompt(summaryPrompt);
+        mainTopicSummary = mainTopicSummary.replace(/^(The main topic is |Main topic: )/i, '').trim();
+      }
+    } catch (summaryError) {
+      console.error("Error generating context summary:", summaryError);
+    } finally {
+      if (summarySession) {
+        await summarySession.destroy();
+        this.activeSessions.delete(requestId);
+      }
+    }
+    return [mainTopicSummary, totalTokens];
+  }
+
+  /**
+   * PASO 2: Ejecuta la limpieza secuencial con clone().
+   */
+  async _runSequentialCleaning(structuredData, contextSummary, requestId, progressCallback) {
+    let templateSession = null;
+    let totalTokens = 0;
+
+    // !!! RELLENA TU PROMPT DE SISTEMA AQUÍ !!!
+    const cleaningSystemPrompt = `You are a web content filter. Given the main topic, decide if the text fragment is "JUNK" (delete) or "CONTENT" (keep).
+
+### DELETE IF (JUNK): ###
+1.  **It's a Title (h2, h3...)** AND CONTAINS keywords: "Advertisement", "Promotion", "Links", "Related Articles", "News", "See also", "Notes", "References", "Bibliography".
+2.  **It's a Paragraph (p_h1_...)** AND is NAVIGATION (e.g., "Home", "Blog", "[edit data...]"), METADATA (e.g., "Updated:"), or FILLER (e.g., "filler paragraph").
+
+### KEEP IF (CONTENT): ###
+* It does **NOT** meet any DELETE rule.
+* It is relevant to the **Main Topic**. This includes titles about the topic (e.g., "## History") and paragraphs with real info.
+
+Respond with "DELETE" or "KEEP".`;
+
+    // --- TU SCHEMA (SIN CAMBIOS) ---
+    const jsonSchema = {
+      "type": "object",
+      "properties": { "decision": { "enum": ["KEEP", "DELETE"] } },
+      "required": ["decision"]
+    };
+
+    try {
+      progressCallback('Creating template session for cleaning...');
+      templateSession = await self.LanguageModel.create({
+        initialPrompts: [{ role: "system", content: cleaningSystemPrompt }],
+        temperature: 0,
+        topK: 1
+      });
+      this.activeSessions.set(requestId, templateSession);
+
+      // --- TU FUNCIÓN RECURSIVA (SIN CAMBIOS) ---
+      async function filterSequentially(sections, currentMainTopic) {
+        let keptSections = [];
+        for (const section of sections) {
+          progressCallback(`Processing: ${section.title.substring(0, 20)}...`);
+
+          let decision = "KEEP";
+          if (section.level > 1) { // Solo filtra H2 en adelante
+            const promptTitle = `Main Topic: "${currentMainTopic}"\nTitle Text: "${section.title}"`;
+            let clonedSession = null;
+            try {
+              clonedSession = await templateSession.clone();
+              const usage = await clonedSession.measureInputUsage({ prompt: promptTitle });
+              totalTokens += usage.totalTokens;
+              const resultStr = await clonedSession.prompt(promptTitle, { responseConstraint: jsonSchema });
+              const result = JSON.parse(resultStr);
+              decision = result.decision;
+            } catch (e) {
+              console.error(`Error processing title: ${section.title.substring(0, 50)}...`, e);
+              decision = "KEEP";
+            } finally {
+              if (clonedSession) await clonedSession.destroy();
+            }
+          }
+
+          if (decision === "KEEP") {
+            if (section.level === 1) { // Solo filtra párrafos de H1
+              let keptParagraphs = [];
+              for (const para of section.paragraphs) {
+                progressCallback(`Processing paragraph: ${para.text.substring(0, 20)}...`);
+                const promptPara = `Main Topic: "${currentMainTopic}"\nParagraph Text: "${para.text}"`;
+                let clonedSession = null;
+                let paraDecision = "KEEP";
+                try {
+                  clonedSession = await templateSession.clone();
+                  const usage = await clonedSession.measureInputUsage({ prompt: promptPara });
+                  totalTokens += usage.totalTokens;
+                  const resultStr = await clonedSession.prompt(promptPara, { responseConstraint: jsonSchema });
+                  const result = JSON.parse(resultStr);
+                  paraDecision = result.decision;
+                } catch (e) {
+                  console.error(`Error processing paragraph: ${para.text.substring(0, 50)}...`, e);
+                  paraDecision = "KEEP";
+                } finally {
+                  if (clonedSession) await clonedSession.destroy();
+                }
+
+                if (paraDecision === "KEEP") {
+                  keptParagraphs.push(para);
+                }
+              }
+              section.paragraphs = keptParagraphs;
+            }
+
+            section.subsections = await filterSequentially(section.subsections, currentMainTopic);
+            keptSections.push(section);
+          }
+        }
+        return keptSections;
+      }
+
+      const dataToFilter = JSON.parse(JSON.stringify(structuredData));
+      const finalCleanedStructure = await filterSequentially(dataToFilter, contextSummary);
+
+      return [finalCleanedStructure, totalTokens];
+
+    } catch (e) {
+      console.error('Error during AI process:', e);
+      throw e;
+    } finally {
+      if (templateSession) {
+        await templateSession.destroy();
+        this.activeSessions.delete(requestId);
+        console.log('Template cleaning session destroyed.');
+      }
+    }
+  }
+
+
+  /**
+   * Método público para orquestar todo el proceso de limpieza.
+   */
+  async cleanStructure(structuredData, cleaningRequestId, progressCallback = () => { }) {
+    let totalTokens = 0;
+
+    // --- PASO 1: GENERAR CONTEXTO ---
+    progressCallback('Generating context summary...');
+    const summaryRequestId = `summary-${cleaningRequestId}`;
+
+    const [mainTopicSummary, summaryTokens] = await this._generateContextSummary(
+      structuredData,
+      summaryRequestId
+    );
+    totalTokens += summaryTokens;
+    progressCallback(`Context: ${mainTopicSummary}. Starting sequential cleaning...`);
+    console.log("Generated Context:", mainTopicSummary);
+
+    // --- PASO 2: LIMPIEZA SECUENCIAL ---
+    const [finalCleanedStructure, cleaningTokens] = await this._runSequentialCleaning(
+      structuredData,
+      mainTopicSummary,
+      cleaningRequestId,
+      progressCallback
+    );
+    totalTokens += cleaningTokens;
+
+    return [finalCleanedStructure, totalTokens];
+  }
+}
+
 // Exportar instancia unica(injectar en window para que sea global)
 window.geminiService = new GeminiService();
+window.geminiNanoCleaner = new GeminiNanoCleaner();

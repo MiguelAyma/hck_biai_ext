@@ -514,7 +514,6 @@ export async function extractRawMarkdown(): Promise<void> {
 }
 
 ////////////nuevo extract plain text
-
 function extractPlainTextMarkdownScript() {
   if (typeof TurndownService === "undefined") {
     return "Error: Turndown library not found.";
@@ -539,6 +538,7 @@ function extractPlainTextMarkdownScript() {
     "footer",
     "aside",
     "img",
+    "button",
     "a",
   ]);
 
@@ -615,10 +615,134 @@ function extractPlainTextMarkdownScript() {
   return markdown;
 }
 
-export async function extractPlainTextMarkdown(): Promise<void> {
+// Función auxiliar para extraer contenido de una URL específica
+async function fetchAndExtractFromUrl(url: string): Promise<string> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+
+    if (typeof TurndownService === "undefined") {
+      throw new Error("Turndown library not found.");
+    }
+
+    const turndownService = new TurndownService({
+      headingStyle: "atx",
+      hr: "---",
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+      emDelimiter: "*",
+      strongDelimiter: "**",
+    });
+
+    turndownService.remove([
+      "script",
+      "style",
+      "noscript",
+      "iframe",
+      "nav",
+      "footer",
+      "aside",
+      "img",
+      "button",
+      "a",
+    ]);
+
+    turndownService.addRule("removeImages", {
+      filter: "img",
+      replacement: () => "",
+    });
+
+    turndownService.addRule("removeLinks", {
+      filter: "a",
+      replacement: () => "",
+    });
+
+    const contentElement =
+      doc.querySelector("article") ||
+      doc.querySelector("main") ||
+      doc.querySelector('[role="main"]') ||
+      doc.body;
+
+    const clonedContent = contentElement.cloneNode(true) as HTMLElement;
+
+    const removeSelectors =
+      '.ads, .advertisement, #comments, .sidebar, .ad, [class*="banner"], footer, aside, nav, [class*="sidebar"], [id*="sidebar"]';
+    clonedContent.querySelectorAll(removeSelectors).forEach((el) => {
+      if (!el.closest("h1") && !el.closest("h2") && !el.closest("h3")) {
+        el.remove();
+      }
+    });
+
+    clonedContent.querySelectorAll("img").forEach((img) => img.remove());
+    clonedContent.querySelectorAll("a").forEach((link) => link.remove());
+
+    clonedContent.querySelectorAll("header").forEach((headerEl) => {
+      const headings = headerEl.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      if (headings.length > 0) {
+        const headingsToKeep = Array.from(headings);
+        while (headerEl.firstChild) {
+          headerEl.removeChild(headerEl.firstChild);
+        }
+        headingsToKeep.forEach((h) => headerEl.appendChild(h));
+      } else {
+        headerEl.remove();
+      }
+    });
+
+    const hasH1 = clonedContent.querySelector("h1");
+    if (!hasH1) {
+      for (let i = 2; i <= 6; i++) {
+        const headingsToPromote = clonedContent.querySelectorAll(`h${i}`);
+        headingsToPromote.forEach((oldHeading) => {
+          const newHeading = doc.createElement(`h${i - 1}`);
+          newHeading.innerHTML = oldHeading.innerHTML;
+          for (const attr of oldHeading.attributes) {
+            newHeading.setAttribute(attr.name, attr.value);
+          }
+          oldHeading.parentNode?.replaceChild(newHeading, oldHeading);
+        });
+      }
+    }
+
+    let markdown = turndownService.turndown(clonedContent);
+    markdown = markdown.replace(/\n{3,}/g, "\n\n").trim();
+
+    return markdown;
+  } catch (error) {
+    throw new Error(
+      `Error fetching URL: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
+}
+
+//USAR ESTA FUNCION PARA TRAER CONTENIDO MARKDOWN SIN IMAGENES, LINKS, ADS, FOOTER, SIDEBAR, ETC
+// Función principal modificada para aceptar URL opcional
+export async function extractPlainTextMarkdown(
+  url?: string | null
+): Promise<void> {
   plainTextMarkdownStore.setLoading(true);
 
   try {
+    // Si se proporciona una URL, extraer de esa URL
+    if (url && url.trim() !== "") {
+      const markdown = await fetchAndExtractFromUrl(url);
+      plainTextMarkdownStore.setContent(markdown);
+      console.log(
+        "Plain text markdown extracted from URL:",
+        markdown.substring(0, 200) + "..."
+      );
+      return;
+    }
+
+    // Si no hay URL, extraer de la pestaña actual (comportamiento original)
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
@@ -641,7 +765,7 @@ export async function extractPlainTextMarkdown(): Promise<void> {
     if (results && results[0] && results[0].result) {
       plainTextMarkdownStore.setContent(results[0].result);
       console.log(
-        "Plain text markdown extracted:",
+        "Plain text markdown extracted from current tab:",
         results[0].result.substring(0, 200) + "..."
       );
     } else {
@@ -655,3 +779,145 @@ export async function extractPlainTextMarkdown(): Promise<void> {
     plainTextMarkdownStore.setLoading(false);
   }
 }
+// //contentScript.js
+// function extractPlainTextMarkdownScript() {
+//   if (typeof TurndownService === "undefined") {
+//     return "Error: Turndown library not found.";
+//   }
+
+//   const turndownService = new TurndownService({
+//     headingStyle: "atx",
+//     hr: "---",
+//     bulletListMarker: "-",
+//     codeBlockStyle: "fenced",
+//     emDelimiter: "*",
+//     strongDelimiter: "**",
+//   });
+
+//   // Eliminar elementos innecesarios
+//   turndownService.remove([
+//     "script",
+//     "style",
+//     "noscript",
+//     "iframe",
+//     "nav",
+//     "footer",
+//     "aside",
+//     "img",
+//     "button",
+//     "a",
+//   ]);
+
+//   // Regla para eliminar imágenes completamente
+//   turndownService.addRule("removeImages", {
+//     filter: "img",
+//     replacement: () => "",
+//   });
+
+//   // Regla para eliminar enlaces completamente
+//   turndownService.addRule("removeLinks", {
+//     filter: "a",
+//     replacement: () => "",
+//   });
+
+//   const contentElement =
+//     document.querySelector("article") ||
+//     document.querySelector("main") ||
+//     document.querySelector('[role="main"]') ||
+//     document.body;
+
+//   const clonedContent = contentElement.cloneNode(true) as HTMLElement;
+
+//   // Limpieza de selectores de anuncios, sidebar, footer
+//   const removeSelectors =
+//     '.ads, .advertisement, #comments, .sidebar, .ad, [class*="banner"], footer, aside, nav, [class*="sidebar"], [id*="sidebar"]';
+//   clonedContent.querySelectorAll(removeSelectors).forEach((el) => {
+//     if (!el.closest("h1") && !el.closest("h2") && !el.closest("h3")) {
+//       el.remove();
+//     }
+//   });
+
+//   // Eliminar imágenes del DOM clonado
+//   clonedContent.querySelectorAll("img").forEach((img) => img.remove());
+
+//   // Eliminar enlaces completamente del DOM clonado
+//   clonedContent.querySelectorAll("a").forEach((link) => link.remove());
+
+//   // Procesar headers
+//   clonedContent.querySelectorAll("header").forEach((headerEl) => {
+//     const headings = headerEl.querySelectorAll("h1, h2, h3, h4, h5, h6");
+
+//     if (headings.length > 0) {
+//       const headingsToKeep = Array.from(headings);
+//       while (headerEl.firstChild) {
+//         headerEl.removeChild(headerEl.firstChild);
+//       }
+//       headingsToKeep.forEach((h) => headerEl.appendChild(h));
+//     } else {
+//       headerEl.remove();
+//     }
+//   });
+
+//   // Promover headings si no hay H1
+//   const hasH1 = clonedContent.querySelector("h1");
+
+//   if (!hasH1) {
+//     for (let i = 2; i <= 6; i++) {
+//       const headingsToPromote = clonedContent.querySelectorAll(`h${i}`);
+//       headingsToPromote.forEach((oldHeading) => {
+//         const newHeading = document.createElement(`h${i - 1}`);
+//         newHeading.innerHTML = oldHeading.innerHTML;
+//         for (const attr of oldHeading.attributes) {
+//           newHeading.setAttribute(attr.name, attr.value);
+//         }
+//         oldHeading.parentNode?.replaceChild(newHeading, oldHeading);
+//       });
+//     }
+//   }
+
+//   let markdown = turndownService.turndown(clonedContent);
+//   markdown = markdown.replace(/\n{3,}/g, "\n\n").trim();
+
+//   return markdown;
+// }
+
+// export async function extractPlainTextMarkdown(): Promise<void> {
+//   plainTextMarkdownStore.setLoading(true);
+
+//   try {
+//     const [tab] = await chrome.tabs.query({
+//       active: true,
+//       currentWindow: true,
+//     });
+
+//     if (!tab.id) {
+//       throw new Error("No active tab found");
+//     }
+
+//     await chrome.scripting.executeScript({
+//       target: { tabId: tab.id },
+//       files: ["turndown.min.js"],
+//     });
+
+//     const results = await chrome.scripting.executeScript({
+//       target: { tabId: tab.id },
+//       func: extractPlainTextMarkdownScript,
+//     });
+
+//     if (results && results[0] && results[0].result) {
+//       plainTextMarkdownStore.setContent(results[0].result);
+//       console.log(
+//         "Plain text markdown extracted:",
+//         results[0].result.substring(0, 200) + "..."
+//       );
+//     } else {
+//       throw new Error("No se pudo extraer contenido");
+//     }
+//   } catch (error) {
+//     const message = error instanceof Error ? error.message : "Unknown error";
+//     plainTextMarkdownStore.setError(message);
+//     console.error("Error extracting plain text markdown:", error);
+//   } finally {
+//     plainTextMarkdownStore.setLoading(false);
+//   }
+// }

@@ -241,6 +241,59 @@ function createPlainTextMarkdownStore() {
   };
 }
 
+// 1. He definido la interfaz para el estado del nuevo store
+interface CleanMarkdownByIaState {
+  content: string;
+  isLoading: boolean;
+  hasError: boolean;
+  errorMessage: string;
+}
+
+// 2. He renombrado la función como pediste
+export function createCleanMarkdownByIaStore() {
+  const { subscribe, set, update }: Writable<CleanMarkdownByIaState> = writable(
+    {
+      content: "",
+      isLoading: false,
+      hasError: false,
+      errorMessage: "",
+    }
+  );
+
+  // 3. El resto de la lógica interna es idéntica
+  return {
+    subscribe,
+    setLoading: (loading: boolean) => {
+      update((state) => ({ ...state, isLoading: loading }));
+    },
+    setContent: (content: string) => {
+      update((state) => ({
+        ...state,
+        content,
+        hasError: false,
+        errorMessage: "",
+      }));
+    },
+    setError: (message: string) => {
+      update((state) => ({
+        ...state,
+        hasError: true,
+        errorMessage: message,
+        isLoading: false,
+      }));
+    },
+    reset: () => {
+      set({
+        content: "",
+        isLoading: false,
+        hasError: false,
+        errorMessage: "",
+      });
+    },
+  };
+}
+
+export const cleanMarkdownByIaStore = createCleanMarkdownByIaStore();
 export const plainTextMarkdownStore = createPlainTextMarkdownStore();
 export const fullMarkdownStore = createFullMarkdownStore();
 export const textOnlyMarkdownStore = createTextOnlyMarkdownStore();

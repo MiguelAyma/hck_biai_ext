@@ -184,6 +184,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true, message: 'Análisis iniciado' });
     return true;
   }
+  //FIN AI SIMULACION
 
   // ========================================
   //INICIO DE GENERACION DE RESUMEN CON GEMINI NANO

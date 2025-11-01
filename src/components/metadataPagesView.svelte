@@ -1,37 +1,51 @@
 <script lang="ts">
   import {
-    projectStore,
+    projectsStore,
     activeProject,
-    activePagesStore,
-  } from "../stores/projectStore";
-  import { extractAndAddMetadata, extraImageCurrentPage } from "../services/metadataExtractor.service";
+    activeWebpages,
+  } from "../stores/projectsStore";
+  import { projectPagesService } from "../services/proyectPages.service";
   import FolderIcon from "../icons/folderIcon.svelte";
   import TrashIcon from "../icons/trashIcon.svelte";
   import PlusIcon from "../icons/plusIcon.svelte";
   import PhotoIcon from "../icons/photoIcon.svelte";
   import { onMount } from "svelte";
+  import { plainTextMarkdownStore } from "../stores/contentStore";
+  import { extractPlainTextMarkdown } from "../services/contentExtrator.service";
+  import { projectPageStore } from "../stores/projectStore";
 
   let isAdding = false;
   let showProjectSelector = false;
   let showNewProjectModal = false;
   let showProjectsMenu = false;
   let newProjectName = "";
-  let nameCurrentPage: string | null = null;
+  let currentPageFavicon: string | null = null;
 
   async function handleAddPage(projectId: string) {
     isAdding = true;
     showProjectSelector = false;
-    await extractAndAddMetadata(projectId);
-    isAdding = false;
+    
+    try {
+      // Usar el método que verifica duplicados
+      const added = await projectPagesService.extractAndAddIfNew(projectId);
+      
+      if (!added) {
+        alert("Esta página ya existe en el proyecto");
+      }
+    } catch (error) {
+      console.error("Error adding page:", error);
+    } finally {
+      isAdding = false;
+    }
   }
 
-  async function handleRemovePage(id: string) {
-    await projectStore.removePage(id);
+  async function handleRemovePage(projectId: string, webpageId: string) {
+    await projectsStore.removeWebpage(projectId, webpageId);
   }
 
   async function handleCreateProject() {
     if (newProjectName.trim()) {
-      await projectStore.createProject(newProjectName.trim());
+      await projectsStore.createProject(newProjectName.trim());
       newProjectName = "";
       showNewProjectModal = false;
     }
@@ -43,7 +57,7 @@
         "¿Estás seguro? Se eliminarán todas las páginas de este proyecto."
       )
     ) {
-      await projectStore.deleteProject(id);
+      await projectsStore.deleteProject(id);
       showProjectsMenu = false;
     }
   }
@@ -91,12 +105,39 @@
   }
 
   onMount(async () => {
-    nameCurrentPage = await extraImageCurrentPage();
+    try {
+      currentPageFavicon = await projectPagesService.extractFavicon();
+    } catch (error) {
+      console.error("Error extracting favicon:", error);
+    }
   });
+
+  const extractFullMarkdown = async (url: string) => {
+    try {
+      console.log("URL extraida:", url);
+      await extractPlainTextMarkdown(url);
+      console.log("Markdown extraido:", $plainTextMarkdownStore.content);
+    } catch (error) {
+      console.error("Error extracting markdown:", error);
+      return "";
+    }
+  };
+
+  // Calcular el conteo de páginas para cada proyecto
+  $: projectsWithCount = $projectsStore.projects.map(project => ({
+    ...project,
+    pageCount: project.webpages.length
+  }));
+
+  const handleSelectProject = (projectId: string) => {
+    projectsStore.setActiveProject(projectId);
+    projectPageStore.setIdProject(projectId);
+    showProjectsMenu = false;
+  };
+
 </script>
 
 <div class="content-container p-4">
-  
   <div class="mb-4">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2 flex-1">
@@ -105,9 +146,11 @@
             on:click={() => (showProjectsMenu = !showProjectsMenu)}
             class="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all group"
           >
-            <span class="text-2xl">{$activeProject?.icon || "📁"}</span>
+            <!-- <span class="text-2xl">📁</span> -->
             <div class="text-left">
-              <div class="text-sm font-semibold text-gray-900 flex items-center gap-1">
+              <div
+                class="text-sm font-semibold text-gray-900 flex items-center gap-1"
+              >
                 {$activeProject?.name || "General"}
                 <svg
                   class="w-4 h-4 text-gray-400 transition-transform"
@@ -125,7 +168,7 @@
                 </svg>
               </div>
               <div class="text-xs text-gray-500">
-                {$activeProject?.pageCount || 0} páginas
+                {$activeProject?.webpages.length || 0} páginas
               </div>
             </div>
           </button>
@@ -141,23 +184,20 @@
               </div>
 
               <div class="max-h-64 overflow-y-auto">
-                {#each $projectStore.projects as project (project.id)}
+                {#each projectsWithCount as project (project.id)}
                   <button
-                    on:click={() => {
-                      projectStore.setActiveProject(project.id);
-                      showProjectsMenu = false;
-                    }}
+                    on:click={() => handleSelectProject(project.id)}
                     class="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors group"
                     class:bg-indigo-50={project.id ===
-                      $projectStore.activeProjectId}
+                      $projectsStore.activeProjectId}
                   >
-                    <span class="text-2xl">{project.icon}</span>
+                    <!-- <span class="text-2xl">📁</span> -->
                     <div class="flex-1 text-left">
                       <div
                         class="text-sm font-medium text-gray-900 flex items-center gap-2"
                       >
                         {project.name}
-                        {#if project.id === $projectStore.activeProjectId}
+                        {#if project.id === $projectsStore.activeProjectId}
                           <svg
                             class="w-4 h-4 text-black"
                             fill="currentColor"
@@ -195,7 +235,7 @@
                     showNewProjectModal = true;
                     showProjectsMenu = false;
                   }}
-                  class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-black hover:bg-black rounded-lg transition-colors"
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                 >
                   <PlusIcon className="w-4 h-4" />
                   Crear Nuevo Proyecto
@@ -205,11 +245,10 @@
           {/if}
         </div>
       </div>
-
       <div class="relative project-selector-container">
         <button
           on:click={() => (showProjectSelector = !showProjectSelector)}
-          disabled={isAdding || $projectStore.isLoading}
+          disabled={isAdding}
           class="px-4 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {#if isAdding}
@@ -229,7 +268,9 @@
             </div>
             <span>Agregando...</span>
           {:else}
-            <img class="w-4 h-4" src={nameCurrentPage} alt="">
+            {#if currentPageFavicon}
+              <img class="w-4 h-4" src={currentPageFavicon} alt="" />
+            {/if}
             <PlusIcon className="w-5 h-5" />
             <span>Add this website</span>
           {/if}
@@ -243,12 +284,11 @@
               <div class="text-xs font-semibold text-gray-500 px-2 py-1 mb-1">
                 AGREGAR A PROYECTO
               </div>
-              {#each $projectStore.projects as project (project.id)}
+              {#each projectsWithCount as project (project.id)}
                 <button
                   on:click={() => handleAddPage(project.id)}
                   class="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 rounded-lg transition-colors text-left"
                 >
-                  <span class="text-xl">{project.icon}</span>
                   <div class="flex-1">
                     <div class="text-sm font-medium text-gray-900">
                       {project.name}
@@ -266,40 +306,41 @@
     </div>
   </div>
 
-  {#if $projectStore.hasError}
+  {#if $projectsStore.hasError}
     <div
       class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
     >
       <p class="font-medium">Error:</p>
-      <p>{$projectStore.errorMessage}</p>
+      <p>{$projectsStore.errorMessage}</p>
     </div>
   {/if}
 
-
-  {#if $activePagesStore.length === 0}
+  {#if $activeWebpages.length === 0}
     <div class="text-center py-16">
       <div
         class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl flex items-center justify-center"
       >
         <FolderIcon className="w-10 h-10 text-gray-400" />
       </div>
-      <p class="text-gray-500 text-base mb-2">No hay páginas en este proyecto</p>
+      <p class="text-gray-500 text-base mb-2">
+        No hay páginas en este proyecto
+      </p>
       <p class="text-gray-400 text-sm">
         Haz clic en "Agregar" para guardar una página
       </p>
     </div>
   {:else}
     <div class="space-y-3">
-      {#each $activePagesStore as item (item.id)}
+      {#each $activeWebpages as webpage (webpage.id)}
         <div
           class="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-gray-300 transition-all duration-200"
         >
           <div class="flex gap-3">
             <div class="flex-shrink-0">
-              {#if item.image}
+              {#if webpage.faviconUrl}
                 <img
-                  src={item.image}
-                  alt={item.title}
+                  src={webpage.faviconUrl}
+                  alt={webpage.title}
                   class="w-20 h-20 object-cover rounded-lg"
                   on:error={(e) => {
                     e.currentTarget.style.display = "none";
@@ -319,10 +360,11 @@
                 <h3
                   class="font-semibold text-gray-900 text-sm leading-snug line-clamp-2"
                 >
-                  {item.title || "Sin título"}
+                  {webpage.title || "Sin título"}
                 </h3>
                 <button
-                  on:click={() => handleRemovePage(item.id)}
+                  on:click={() =>
+                    handleRemovePage($activeProject?.id || "", webpage.id)}
                   class="flex-shrink-0 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                   title="Eliminar"
                 >
@@ -330,16 +372,20 @@
                 </button>
               </div>
 
-              {#if item.description}
-                <p class="text-xs text-gray-600 mb-2 line-clamp-2">
-                  {truncateText(item.description, 120)}
-                </p>
-              {/if}
+              <div class="flex items-start gap-2 mb-2">
+                <button
+                  on:click={() => extractFullMarkdown(webpage.url)}
+                  class="px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                  title="Extraer Markdown"
+                >
+                  Extraer Markdown
+                </button>
+              </div>
 
               <div class="flex items-center gap-2 flex-wrap">
-                {#if item.favicon}
+                {#if webpage.faviconUrl}
                   <img
-                    src={item.favicon}
+                    src={webpage.faviconUrl}
                     alt=""
                     class="w-4 h-4 rounded"
                     on:error={(e) => {
@@ -347,26 +393,33 @@
                     }}
                   />
                 {/if}
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-xs text-blue-600 hover:underline truncate max-w-[200px]"
-                >
-                  {new URL(item.url).hostname}
-                </a>
+                {#if webpage.url}
+                  <a
+                    href={webpage.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-xs text-blue-600 hover:underline truncate max-w-[200px]"
+                  >
+                    {(() => {
+                      try {
+                        return new URL(webpage.url).hostname;
+                      } catch {
+                        return webpage.url;
+                      }
+                    })()}
+                  </a>
+                {:else}
+                  <span class="text-xs text-gray-400">Sin URL</span>
+                {/if}
                 <span class="text-xs text-gray-400">•</span>
                 <span class="text-xs text-gray-500">
-                  {formatDate(item.addedAt)}
+                  {formatDate(webpage.addedAt)}
                 </span>
               </div>
 
-              {#if item.author}
-                <div class="mt-1 text-xs text-gray-500">
-                  <span class="font-medium">Por:</span>
-                  {item.author}
-                </div>
-              {/if}
+              <div class="mt-1 text-xs text-gray-400">
+                ID: {webpage.id}
+              </div>
             </div>
           </div>
         </div>
@@ -374,7 +427,6 @@
     </div>
   {/if}
 </div>
-
 
 {#if showNewProjectModal}
   <div
@@ -423,7 +475,7 @@
           type="text"
           bind:value={newProjectName}
           placeholder="Ej: Proyecto Personal, Trabajo, etc."
-          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black transition-shadow"
+          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
           on:keydown={(e) => {
             if (e.key === "Enter") handleCreateProject();
           }}
@@ -441,7 +493,7 @@
         <button
           on:click={handleCreateProject}
           disabled={!newProjectName.trim()}
-          class="px-4 py-2 text-sm font-medium bg-black text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Crear Proyecto
         </button>
@@ -449,7 +501,6 @@
     </div>
   </div>
 {/if}
-
 <style>
   .line-clamp-2 {
     display: -webkit-box;

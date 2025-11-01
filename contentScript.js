@@ -950,7 +950,67 @@ window.addEventListener('message', (event) => {
       }
     })();
   }
-  //FIN GEMINI NANO
+
+  // -----------------------------------------------------------------
+  // MANEJAR PETICIÓN DE LIMPIEZA
+  // -----------------------------------------------------------------
+  if (event.data.action === 'requestClean') {
+    (async () => {
+      const { structuredData, requestId } = event.data;
+      const iframe = document.getElementById('botsi-container'); // Obtener el iframe
+
+      console.log(`ContentScript: Recibida petición 'requestClean' (ID: ${requestId})`);
+
+      try {
+        // 1. Verificar que el nuevo servicio exista
+        if (!window.geminiNanoCleaner) {
+          throw new Error('Gemini Nano Cleaner Service no está disponible');
+        }
+
+        // 2. Definir el callback de progreso
+        const progressCallback = (message) => {
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({
+              action: 'cleanProgress',
+              requestId,
+              message
+            }, '*');
+          }
+        };
+
+        // 3. Llamar al método de la clase
+        const [finalCleanedStructure, totalTokens] = await window.geminiNanoCleaner.cleanStructure(
+          structuredData,
+          requestId,
+          progressCallback
+        );
+
+        // 4. Enviar resultado FINAL al iframe
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({
+            action: 'cleanComplete',
+            requestId,
+            finalCleanedStructure,
+            totalTokens
+          }, '*');
+        }
+
+      } catch (error) {
+        console.error('ContentScript: Error limpiando estructura:', error);
+
+        // 5. Enviar error al iframe
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({
+            action: 'cleanError',
+            requestId,
+            error: error.message
+          }, '*');
+        }
+      }
+    })();
+    //FIN GEMINI NANO CLEAN
+  }
+
   //INICIO TRANSLATOR - Manejar peticiones de traducción desde el iframe
   if (event.data.action === 'requestTranslation') {
     (async () => {
