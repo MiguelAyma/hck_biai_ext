@@ -1132,7 +1132,129 @@ window.addEventListener('message', (event) => {
     }
   }
   //FIN TRANSLATOR
-});
+
+  // -----------------------------------------------------------------
+  // MANEJAR INICIALIZACIÓN DE CHAT 
+  // -----------------------------------------------------------------
+if (event.data.action === 'requestChatInit') {
+    (async () => {
+      //  recibimos 'misContenidos' desde Svelte
+      const { requestId, misContenidos } = event.data; 
+      const iframe = document.getElementById('botsi-container');
+
+      try {
+        if (!window.geminiChatService) {
+          throw new Error('Gemini Chat Service no está disponible');
+        }
+
+        const callbacks = {
+          onQuotaOverflow: (message) => {
+            iframe.contentWindow.postMessage({ action: 'chatQuotaOverflow', requestId, message }, '*');
+          },
+          onHistoryRestored: (history, lastMessage) => {
+            iframe.contentWindow.postMessage({ action: 'chatHistoryRestored', requestId, history, lastMessage }, '*');
+          },
+          onSessionReady: () => {
+            iframe.contentWindow.postMessage({ action: 'chatReady', requestId }, '*');
+          },
+          onError: (error) => {
+            iframe.contentWindow.postMessage({ action: 'chatError', requestId, error }, '*');
+          }
+        };
+
+        await window.geminiChatService.initializeSession(requestId, misContenidos, callbacks);
+
+      } catch (error) {
+        iframe.contentWindow.postMessage({ action: 'chatError', requestId, error: error.message }, '*');
+      }
+    })();
+  }
+
+  if (event.data.action === 'requestChatSend') {
+    (async () => {
+      const { requestId, userText } = event.data;
+      const iframe = document.getElementById('botsi-container');
+
+      try {
+        if (!window.geminiChatService) {
+          throw new Error('Gemini Chat Service no está disponible');
+        }
+        const { response } = await window.geminiChatService.sendMessage(requestId, userText);
+
+        iframe.contentWindow.postMessage({
+          action: 'chatResponse',
+          requestId,
+          response,
+          // 'usage' ya no se envía
+        }, '*');
+
+      } catch (error) {
+        iframe.contentWindow.postMessage({ action: 'chatError', requestId, error: error.message }, '*');
+      }
+    })();
+  }
+
+
+  if (event.data.action === 'requestSystemUpdate') {
+    (async () => {
+      
+      const { requestId, newContent } = event.data;
+      const iframe = document.getElementById('botsi-container');
+
+      try {
+
+        if (!window.geminiChatService) {
+          throw new Error('Gemini Chat Service no está disponible');
+        }
+
+        const result = await window.geminiChatService.updateSystemPrompt(requestId, newContent);
+
+        iframe.contentWindow.postMessage({
+          action: 'chatSystemUpdated', 
+          requestId: requestId,
+          message: result.message
+        }, '*'); 
+        
+      } catch (error) {
+        console.error(error);
+        // Envía el error de vuelta a Svelte (usando 'iframe' como tus otros bloques)
+        iframe.contentWindow.postMessage({
+          action: 'chatError',
+          requestId: requestId,
+          error: error.message || "Error desconocido al actualizar el prompt."
+        }, '*');
+      }
+    })();
+  }
+    // --- FIN DEL BLOQUE NUEVO ---
+
+
+  if (event.data.action === 'requestChatDestroy') {
+    (async () => {
+      const { requestId } = event.data;
+      if (window.geminiChatService) {
+        console.log(`ContentScript: Destruyendo sesión ${requestId}`);
+        await window.geminiChatService.destroySession(requestId);
+      }
+    })();
+  }
+
+  if (event.data.action === 'getChatListRequest') {
+    (async () => {
+      const iframe = document.getElementById('botsi-container');
+      if (window.geminiChatService) {
+        const list = await window.geminiChatService.getChatList();
+        
+        iframe.contentWindow.postMessage({
+          action: 'chatListResponse',
+          chatList: list
+        }, '*');
+      }
+    })();
+  }
+  
+}); // Fin del addEventListener
+//FIN GEMINI NANO
 
 
 

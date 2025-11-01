@@ -11,9 +11,7 @@ class GeminiService {
       if (!content || content.trim().length < 150) {
         throw new Error("El contenido es demasiado corto para generar un resumen.");
       }
-
       const sharedContext = "You are an expert AI assistant specializing in distilling web content from Markdown format into clear and concise summaries. Your goal is to help a user quickly grasp the core message, key arguments, and important conclusions of a webpage. Focus on extracting the most valuable information.";
-
       // Crear el summarizer
       const summarizer = await Summarizer.create({
         sharedContext,
@@ -150,7 +148,6 @@ ${contextText}`;
 
 Respond with "DELETE" or "KEEP".`;
 
-    // --- TU SCHEMA (SIN CAMBIOS) ---
     const jsonSchema = {
       "type": "object",
       "properties": { "decision": { "enum": ["KEEP", "DELETE"] } },
@@ -166,7 +163,6 @@ Respond with "DELETE" or "KEEP".`;
       });
       this.activeSessions.set(requestId, templateSession);
 
-      // --- TU FUNCIÓN RECURSIVA (SIN CAMBIOS) ---
       async function filterSequentially(sections, currentMainTopic) {
         let keptSections = [];
         for (const section of sections) {
@@ -275,6 +271,229 @@ Respond with "DELETE" or "KEEP".`;
     return [finalCleanedStructure, totalTokens];
   }
 }
+
+/*********  INICIO DE CLASE GEMINI CHAT SERVICE  ********/
+class GeminiChatService {
+  constructor() {
+    this.activeSessions = new Map();
+    // Esta es la llave MAESTRA que guardará TODOS los chats
+    this.STORAGE_KEY = 'geminiAllChatSessions'; 
+  }
+
+  // --- NUEVOS MÉTODOS DE AYUDA (ASÍNCRONOS) ---
+  
+  /** Obtiene el mapa completo de todas las sesiones guardadas */
+  async _getAllSessions() {
+    try {
+      const result = await chrome.storage.local.get(this.STORAGE_KEY);
+      return result[this.STORAGE_KEY] || {};
+    } catch (e) {
+      console.error("Error al leer chrome.storage:", e);
+      return {};
+    }
+  }
+
+  /** Guarda el mapa completo de todas las sesiones */
+  async _saveAllSessions(sessionsMap) {
+    try {
+      await chrome.storage.local.set({ [this.STORAGE_KEY]: sessionsMap });
+    } catch (e) {
+      console.error("Error al guardar en chrome.storage:", e);
+    }
+  }
+
+  // --- MÉTODOS PRINCIPALES (MODIFICADOS) ---
+
+  /**
+   * Inicializa una sesión de chat.
+   * La crea o la restaura desde el almacenamiento global.
+   */
+  async initializeSession(requestId, misContenidos, callbacks) {
+    console.log(`ChatService: Inicializando sesión (ID: ${requestId})`);
+
+    const markdownText = misContenidos.map(doc => {
+      return `# ${doc.titulo}\n\n${doc.contenido}`;
+    }).join('\n\n---\n\n');
+    
+
+
+    const systemContent = `Eres un asistente experto cuya única función es responder preguntas basadas EXCLUSIVAMENTE en el contenido de los **múltiples temas** proporcionados.
+    Se te ha proporcionado un conjunto de temas. Cada tema está claramente separado por '---' y comienza con su propio título (ej: '# Título del Tema').
+    **REGLA MÁS IMPORTANTE:** Cuando respondas, DEBES citar de qué tema (usando su título) estás sacando la información. Si una pregunta compara temas, menciona ambos. Si la información está en varios, cítalos todos.
+    --- REGLAS DE FORMATO DE RESPUESTA ---
+    Tu respuesta DEBE ser en formato Markdown claro.
+    **NO USES TÍTULOS NI SUBTÍTULOS** (es decir, no uses '#', '##', '###', etc.) en tus respuestas.
+    Tu respuesta DEBE usar solamente los siguientes formatos:
+    1.  **Listas:** Usa '*' o '-' para elementos.
+    2.  **Negritas:** Usa '**' para resaltar términos clave.
+    3.  **Cursiva:** Usa '*' o '_' para enfatizar texto.
+    4.  **Párrafos:** Separa los párrafos con una línea en blanco para mayor claridad.
+    --- INICIO DE LOS TEMAS ---
+    ${markdownText}`;
+    
+    const sessionsMap = await this._getAllSessions();
+    let sessionConfig;
+    let sessionRestaurada = false;
+
+    // Intentar restaurar
+    if (sessionsMap[requestId]) {
+      const savedConfig = sessionsMap[requestId];
+      // Comprobar si el contexto es el mismo (si no, forzar nueva sesión)
+      if (savedConfig.systemContent === systemContent) {
+        sessionConfig = savedConfig;
+        sessionRestaurada = true;
+        console.log(`ChatService: Sesión ${requestId} restaurada.`);
+      }
+    }
+
+    // Crear nueva si no se pudo restaurar
+    if (!sessionRestaurada) {
+      console.log(`ChatService: Creando nueva sesión ${requestId}.`);
+      sessionConfig = {
+        // Guardamos el systemContent para la comprobación
+        systemContent: systemContent, 
+        initialPrompts: [{
+          role: "system",
+          content: systemContent
+        }]
+      };
+    }
+
+    // --- Creación de la sesión ---
+    try {
+      if (typeof LanguageModel === 'undefined') { /*...*/ }
+      const session = await LanguageModel.create(sessionConfig);
+
+      session.onquotaoverflow = () => { /* ... (tu callback) ... */ };
+
+      this.activeSessions.set(requestId, session);
+      
+      // Guardar el estado actual en el mapa
+      sessionsMap[requestId] = sessionConfig;
+      await this._saveAllSessions(sessionsMap);
+
+      if (sessionRestaurada && callbacks.onHistoryRestored) {
+        const history = sessionConfig.initialPrompts;
+        const lastMessage = [...history].reverse().find(m => m.role === 'assistant');
+        callbacks.onHistoryRestored(history, lastMessage ? lastMessage.content : '');
+      }
+
+      if (callbacks.onSessionReady) {
+        callbacks.onSessionReady();
+      }
+      
+    } catch (error) { console.log(`Error al inicializar ${error} `);}
+  }
+
+  /**
+   * Envía un mensaje y guarda el historial en el mapa global.
+   */
+  async sendMessage(requestId, userText) {
+    const session = this.activeSessions.get(requestId);
+    if (!session) { throw new Error("Sesión no inicializada."); }
+    
+    try {
+      const response = await session.prompt(userText);
+      
+      // Guardar la conversación en el mapa de chrome.storage
+      const sessionsMap = await this._getAllSessions();
+      if (sessionsMap[requestId]) {
+        sessionsMap[requestId].initialPrompts.push({ role: 'user', content: userText });
+        sessionsMap[requestId].initialPrompts.push({ role: 'assistant', content: response });
+        await this._saveAllSessions(sessionsMap);
+      }
+      
+      return { response };
+
+    } catch (error) { console.log(`Error al enviar mensaje ${error} `);}
+  }
+
+  /**
+   * Destruye una sesión Y la elimina del mapa global.
+   */
+  async destroySession(requestId, onComplete) {
+    // Destruir la sesión activa
+    const session = this.activeSessions.get(requestId);
+    if (session && typeof session.destroy === 'function') {
+      try {
+        await session.destroy();
+        this.activeSessions.delete(requestId);
+      } catch (e) { console.log(`Error al destruir sesión ${error} `); }
+    }
+    
+    // Eliminar del almacenamiento persistente
+    const sessionsMap = await this._getAllSessions();
+    if (sessionsMap[requestId]) {
+      delete sessionsMap[requestId];
+      await this._saveAllSessions(sessionsMap);
+      console.log(`ChatService: Sesión ${requestId} destruida y limpiada.`);
+    }
+
+    if (onComplete) {
+      onComplete();
+    }
+  }
+
+  /**
+   * ¡NUEVO! Obtiene una lista simple de todos los chats guardados.
+   */
+  async getChatList() {
+    const sessionsMap = await this._getAllSessions();
+    const chatList = [];
+    
+    for (const id in sessionsMap) {
+      const config = sessionsMap[id];
+      // Intenta encontrar el primer mensaje del usuario como título
+      const firstUserMessage = config.initialPrompts.find(m => m.role === 'user');
+      chatList.push({
+        id: id,
+        // Título = primer mensaje, o "Nuevo Chat" si está vacío
+        title: firstUserMessage ? firstUserMessage.content.substring(0, 40) + '...' : "Chat Nuevo"
+      });
+    }
+    return chatList;
+  }
+
+
+  async updateSystemPrompt(requestId, newContent) {
+    console.log(`ChatService: Solicitado actualizar system prompt para ${requestId}`);
+    
+    // 1. Obtener TODAS las sesiones (el mapa completo)
+    const sessionsMap = await this._getAllSessions();
+    
+    // 2. Encontrar la sesión específica
+    const sessionConfig = sessionsMap[requestId];
+
+    if (!sessionConfig) {
+      throw new Error(`Sesión ${requestId} no encontrada en storage.`);
+    }
+
+    // 3. Encontrar el prompt del sistema
+    const systemPrompt = sessionConfig.initialPrompts.find(p => p.role === 'system');
+
+    if (!systemPrompt) {
+      throw new Error(`No se encontró 'system prompt' para la sesión ${requestId}.`);
+    }
+    
+    // 4. ¡AÑADIR el nuevo SystemContent con los nuevos Contextos!
+    systemPrompt.content = newContent;
+    
+    // 5. Guardar el mapa COMPLETO (con la sesión modificada)
+
+    await this._saveAllSessions(sessionsMap);
+    
+    console.log(`ChatService: System prompt for ${requestId} actualizado y guardado.`);
+    
+    // 6. Devolver éxito
+    return { success: true, message: 'Contexto del sistema actualizado.' };
+  }
+}
+
+
+
+window.geminiChatService = new GeminiChatService();
+/*********  FIN DE CLASE GEMINI CHAT SERVICE  ********/
+
 
 // Exportar instancia unica(injectar en window para que sea global)
 window.geminiService = new GeminiService();
