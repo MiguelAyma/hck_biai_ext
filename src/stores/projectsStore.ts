@@ -54,41 +54,94 @@ function createProjectsStore() {
     writable(initialState);
 
   // Cargar datos desde Chrome Storage
-  async function loadFromStorage() {
-    try {
-      const result = await chrome.storage.local.get([STORAGE_KEY]);
-      let loadedState = result[STORAGE_KEY];
+async function loadFromStorage() {
+      try {
+        const result = await chrome.storage.local.get([STORAGE_KEY]);
+        let loadedState = result[STORAGE_KEY];
 
-      // Si no hay datos, crear proyecto por defecto
-      if (!loadedState || loadedState.projects.length === 0) {
-        const defaultProject: Project = {
-          id: DEFAULT_PROJECT_ID,
-          name: "General",
-          contentProject: "",
-          webpages: [],
-          summaryProject: "",
-          createdAt: Date.now(),
-        };
+        // Si no hay datos, crear proyecto por defecto Y EL DE PRUEBA
+        if (!loadedState || loadedState.projects.length === 0) {
+          
+          const now = Date.now();
 
-        loadedState = {
-          ...initialState,
-          projects: [defaultProject],
-          activeProjectId: DEFAULT_PROJECT_ID,
-        };
+          // 1. Crear proyecto por defecto
+          const defaultProject: Project = {
+            id: DEFAULT_PROJECT_ID,
+            name: "General",
+            contentProject: "",
+            webpages: [],
+            summaryProject: "",
+            createdAt: now,
+          };
 
-        await saveToStorage(loadedState);
+          // ======================================================
+          // ¡INICIO DE LA LÓGICA AÑADIDA!
+          // (Es tu lógica de handleSeedData, movida aquí)
+          // ======================================================
+          
+          // 2. Crear las webpages de UML
+          const webpage1: Webpage = {
+            id: `page-uml-seq-${now}`,
+            title: "Diagramas de Secuencia",
+            url: "https://ejemplo.com/uml/secuencia",
+            faviconUrl: "",
+            rawMarkdown: "# Diagramas de Secuencia\n\nUn diagrama de secuencia muestra la interacción de objetos...",
+            strippedMarkdown: "Diagramas de Secuencia. Un diagrama de secuencia...",
+            refinedMarkdown: "Un diagrama de secuencia detalla cómo los objetos interactúan...",
+            markdownSummaryLong: "Un diagrama de secuencia es una herramienta de modelado UML que ilustra las interacciones entre objetos en un escenario específico. Se centra en el orden cronológico de los mensajes.",
+            markdownSummaryMedium: "Muestra cómo los objetos interactúan entre sí...",
+            markdownSummaryShort: "Interacción de objetos en el tiempo.",
+            addedAt: now
+          };
+
+          const webpage2: Webpage = {
+            id: `page-uml-class-${now + 1}`,
+            title: "Diagramas de Clase",
+            url: "https://ejemplo.com/uml/clase",
+            faviconUrl: "",
+            rawMarkdown: "# Diagramas de Clase\n\nUn diagrama de clase describe la estructura...",
+            strippedMarkdown: "Diagramas de Clase. Un diagrama de clase...",
+            refinedMarkdown: "Un diagrama de clase modela la estructura estática...",
+            markdownSummaryLong: "El diagrama de clases es fundamental en UML para el modelado estático. Define la estructura del sistema al mostrar clases, sus atributos, métodos y cómo se relacionan entre sí.",
+            markdownSummaryMedium: "Describe la estructura estática de un sistema...",
+            markdownSummaryShort: "Estructura estática de clases.",
+            addedAt: now + 1
+          };
+
+          // 3. Crear el proyecto de UML
+          const umlProject: Project = {
+            id: `project-uml-${now}`,
+            name: "Diagramas UML",
+            contentProject: "Diagramas de Secuencia, Diagramas de Clase",
+            webpages: [webpage1, webpage2],
+            summaryProject: "Este proyecto contiene información sobre los diagramas UML más comunes.",
+            createdAt: now
+          };
+          
+          // ======================================================
+          // ¡FIN DE LA LÓGICA AÑADIDA!
+          // ======================================================
+
+          // 4. Configurar el estado inicial con AMBOS proyectos
+          loadedState = {
+            ...initialState,
+            projects: [defaultProject, umlProject], // <-- ¡AQUÍ ESTÁ EL CAMBIO!
+            activeProjectId: DEFAULT_PROJECT_ID, // Iniciar en "General"
+          };
+
+          await saveToStorage(loadedState);
+        }
+
+        set(loadedState);
+      } catch (error) {
+        console.error("Error loading from storage:", error);
+        update((state) => ({
+          ...state,
+          hasError: true,
+          errorMessage: "Error al cargar los proyectos",
+        }));
       }
-
-      set(loadedState);
-    } catch (error) {
-      console.error("Error loading from storage:", error);
-      update((state) => ({
-        ...state,
-        hasError: true,
-        errorMessage: "Error al cargar los proyectos",
-      }));
     }
-  }
 
   // Guardar datos en Chrome Storage
   async function saveToStorage(state: ProjectsState) {
@@ -520,6 +573,10 @@ function createProjectsStore() {
         errorMessage: "",
       }));
     },
+
+
+
+
   };
 }
 // Exportar el store

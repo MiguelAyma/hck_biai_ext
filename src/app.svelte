@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Header from './components/header.svelte';
-  import ChatView from './components/chatView.svelte';
+  import ChatView from './components/chatView_wno.svelte';
   import ContentView   from './components/contentView.svelte';
   import SummariesView from './components/summariesView.svelte';
   import Footer from './components/footer.svelte';
@@ -118,7 +118,7 @@
   <Header />
   <main>
     {#if currentView === 'chat'}
-      <ChatView messages={chatMessages} />
+      <ChatView  />
     {:else if currentView === 'markdown'}
     <!-- <RawMarkdownView content={$plainTextMarkdownStore.content} /> -->
       <ContentView content={$plainTextMarkdownStore.content} />
