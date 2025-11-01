@@ -368,17 +368,16 @@
   {:else}
     <div class="space-y-3">
       {#each $activeWebpages as webpage (webpage.id)}
-      {console.log("webpage", webpage)}
+      <!-- {console.log("webpage", webpage)} -->
         <CardPage 
-      {webpage}
-      isMenuOpen={openMenuId === webpage.id}
-      on:toggleMenu={handleToggleMenu}
-      on:closeMenu={handleCloseMenu}
-      ondelete={() => handleDelete(webpage.id)}
-      onviewContent={() => handleViewContent(webpage)}
-      ongenerateAI={() => handleGenerateAI(webpage.url)}
-      
-    />
+          {webpage}
+          isMenuOpen={openMenuId === webpage.id}
+          on:toggleMenu={handleToggleMenu}
+          on:closeMenu={handleCloseMenu}
+          ondelete={() => handleDelete(webpage.id)}
+          onviewContent={() => handleViewContent(webpage)}
+          ongenerateAI={() => handleGenerateAI(webpage.url)}
+        />
       {/each}
     </div>
   {/if}
