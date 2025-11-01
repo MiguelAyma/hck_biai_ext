@@ -141,6 +141,7 @@
     projectsStore.setActiveProject(projectId);
     projectPageStore.setIdProject(projectId);
     showProjectsMenu = false;
+    console.log("Proyecto seleccionado:", $activeProject);
   };
 
   /////////////////////////

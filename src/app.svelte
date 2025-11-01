@@ -53,10 +53,10 @@
     }
 
     // Extraer contenido de la página
-    extractFullMarkdown();
-    extractTextOnlyMarkdown();
-    extractRawMarkdown();
-    extractImages();
+    extractFullMarkdown();//contenido sucio
+    // extractTextOnlyMarkdown();//conte
+    // extractRawMarkdown();
+    // extractImages();
     extractPlainTextMarkdown();
 
     //extractPlainTextMarkdown()
@@ -121,7 +121,7 @@
       <ChatView  />
     {:else if currentView === 'markdown'}
     <!-- <RawMarkdownView content={$plainTextMarkdownStore.content} /> -->
-      <ContentView content={$plainTextMarkdownStore.content} />
+      <ContentView content={$fullMarkdownStore.content} />
     {:else if currentView === 'summaries'}
       <!-- <SummariesView content={$textOnlyMarkdownStore.content} /> -->
       <SummariesView content={$cleanMarkdownByIaStore.content} />

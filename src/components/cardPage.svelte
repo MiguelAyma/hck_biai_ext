@@ -9,6 +9,7 @@
   import { extractPlainTextMarkdown } from '../services/contentExtrator.service';
   import { marked } from 'marked';
   import { activeProject, projectsStore } from '../stores/projectsStore';
+  import CircleCheckIcon from '../icons/circleCheckIcon.svelte';
 
 
   export let webpage = {};
@@ -18,12 +19,14 @@
   export let ongenerateAI = () => {};
   export let projectId = null;
 
+
   ////////////////////
   let initialJsonOutput = null;
   let finalJsonOutput = null; 
   let statusInfo = "Listo.";
   let tokenUsage = "Tokens: 0";
   let isCleaning = false;
+  let isSummarise = false;
   let currentCleanId = null;
   let structuredData = null;
 
@@ -226,7 +229,7 @@
     const { action, requestId, summary, length, error } = event.data;
 
     if (action === 'summaryComplete') {
-
+      isSummarise = false;
       projectsStore.setMarkdownSummaryLong(projectId, webpage.id, summary);
       projectsStore.appendToProjectContent(projectId, webpage.title, summary);
 
@@ -241,6 +244,7 @@
   async function generateSummary(content) { 
     console.log("content", content);
     try {
+      isSummarise = true;
       if (!content || content.trim().length < 150) {
         throw new Error("El contenido de la página es demasiado corto para generar un resumen.");
       }
@@ -257,26 +261,35 @@
       console.log(`Petición de resumen long enviada (ID: ${requestId})`);
 
     } catch (error) {
+      isSummarise = false;
       console.error(`Error al solicitar resumen long:`, error);
       errorMessage = error.message;
-    }
+    } 
   }
 
-  onMount(() => {
-    window.addEventListener('message', handleWindowMessage);
-  });
+  // onMount(() => {
+  //   window.addEventListener('message', handleWindowMessage);
+  // });
 
-  onDestroy(() => {
+  // onDestroy(() => {
+  //   window.removeEventListener('message', handleWindowMessage);
+  // });
+  // onMount(() => {
+  //   window.addEventListener('message', handleMessage);
+  // });
+
+  // onDestroy(() => {
+  //   window.removeEventListener('message', handleMessage);
+  // });
+onMount(() => {
+  window.addEventListener('message', handleWindowMessage);
+  window.addEventListener('message', handleMessage);
+
+  return () => {
     window.removeEventListener('message', handleWindowMessage);
-  });
-  onMount(() => {
-    window.addEventListener('message', handleMessage);
-  });
-
-  onDestroy(() => {
     window.removeEventListener('message', handleMessage);
-  });
-
+  };
+});
   ////////////FIN CLEAN CONTENT AI
   const dispatch = createEventDispatcher();
 
@@ -416,18 +429,24 @@
         <div class="flex justify-end">
         <button
           on:click={handleGenerateAI}
-          disabled={isCleaning}
+          disabled={isCleaning || isSummarise || webpage.markdownSummaryLong !==""}
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-900 hover:text-white border border-gray-200 hover:border-gray-900 rounded-lg transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:bg-gray-50 disabled:hover:text-gray-700 disabled:hover:border-gray-200 min-w-[120px]"
         >
-          {#if isCleaning}
-            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Generating...</span>
+          {#if webpage.markdownSummaryLong !==""}
+            <CircleCheckIcon class="w-4 h-4 text-light-green-500" />
+            <span>content generated</span>
           {:else}
-            <SparklesIcon class="w-4 h-4" />
-            <span>Generate AI</span>
+            {#if isCleaning || isSummarise}
+              <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+               <span class="invisible">Generate AI</span>
+              <span>Generating...</span>
+              {:else}
+                <SparklesIcon class="w-4 h-4" />
+                <span>Generate AI</span>
+            {/if}
           {/if}
         </button>
       </div>

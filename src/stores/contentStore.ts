@@ -293,7 +293,7 @@ export function createCleanMarkdownByIaStore() {
   };
 }
 
-export const cleanMarkdownByIaStore = createCleanMarkdownByIaStore();
+export const cleanMarkdownByIaStore = createCleanMarkdownByIaStore(); //
 export const plainTextMarkdownStore = createPlainTextMarkdownStore();
 export const fullMarkdownStore = createFullMarkdownStore();
 export const textOnlyMarkdownStore = createTextOnlyMarkdownStore();
