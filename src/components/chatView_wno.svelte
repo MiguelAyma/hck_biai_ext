@@ -1,24 +1,25 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { marked } from 'marked';
-  
-  // 1. Importa STORES y TIPOS
+  import { tick } from 'svelte';
+  import TypingIndicator from './typingIndicator.svelte';
+  // 1. Importa el ESTADO INICIAL y los TIPOS
   import { chatStore, chatInitialState } from '../stores/chatStore';
   import type { ChatMessage } from '../stores/chatStore';
-  import { projectsStore, type Project } from '../stores/projectsStore';
-  
-  // (Si TypingIndicator está en español, puedes descomentar esta línea)
-  // import TypingIndicator from './typingIndicator.svelte';
+  import { projectsStore } from '../stores/projectsStore';
+
+
 
   // --- (Estado local de UI) ---
-  let inputValue: string = "";
-  let chatLogElement: HTMLDivElement;
-  let textareaElement: HTMLTextAreaElement;
+  let inputValue: string = "";       // Para el input principal de chat
+  let newContextTitle: string = "";  // Para el input de "Añadir Tema"
+  let newContextBody: string = "";   // Para el textarea de "Añadir Tema"
   
-  // ¡NUEVO! Estado para la sidebar
-  let isSidebarHidden: boolean = false;
+  let chatLogElement: HTMLDivElement;     // Para el auto-scroll
+  let textareaElement: HTMLTextAreaElement; // Para el auto-resize
 
-  // --- (Valores del Store de CHAT) ---
+  // --- (Valores del Store) ---
+  // Declaramos todas las variables de estado que obtendremos del store
   let statusInfo: string = chatInitialState.statusInfo;
   let rawMarkdown: string = chatInitialState.rawMarkdown;
   let chatHistory: ChatMessage[] = chatInitialState.chatHistory;
@@ -27,14 +28,23 @@
   let chatSessionId: string | null = chatInitialState.chatSessionId;
   let chatList: { id: string, title: string }[] = chatInitialState.chatList;
 
-  // --- (Valores del Store de PROYECTOS) ---
-  let allProjects: Project[] = [];
-  let isLoadingProjects: boolean = true;
-  let isLoading2 = false; // (Para el botón de seed)
+  let isLoading2 = false;
 
-  // --- (Suscripciones a Stores) ---
-  
+  async function handleSeedData() {
+    isLoading2 = true;
+    console.log("Cargando datos de Diagramas UML...");
+    
+    // 2. Llama a la nueva función del store
+    await projectsStore.seedUmlData();
+    
+    console.log("¡Datos cargados!");
+    alert("¡Proyecto 'Diagramas UML' añadido!");
+    isLoading2 = false;
+  }
+
+  // 2. Suscripción al Store
   chatStore.subscribe(state => {
+    // Asignamos los nuevos valores del estado
     statusInfo = state.statusInfo;
     rawMarkdown = state.rawMarkdown;
     isLoading = state.isLoading;
@@ -42,25 +52,17 @@
     chatSessionId = state.chatSessionId;
     chatList = state.chatList;
 
+    // Lógica de auto-scroll cuando el historial cambia
     if (state.chatHistory !== chatHistory) {
       chatHistory = state.chatHistory;
       autoScroll();
     }
   });
 
-  projectsStore.subscribe(state => {
-    allProjects = state.projects;
-    isLoadingProjects = state.isLoading;
-  });
-
   // --- (Lógica de UI) ---
-  
-  // ¡NUEVO! Función para ocultar/mostrar la sidebar
-  function toggleSidebar() {
-    isSidebarHidden = !isSidebarHidden;
-  }
 
   async function autoScroll() {
+    // Espera a que Svelte actualice el DOM
     await tick();
     if (chatLogElement) {
       chatLogElement.scrollTop = chatLogElement.scrollHeight;
@@ -71,7 +73,8 @@
     if (!textareaElement) return;
     textareaElement.style.height = 'auto';
     const scrollHeight = textareaElement.scrollHeight;
-    const maxHeight = 120;
+    const maxHeight = 120; // Límite de altura del textarea
+
     if (scrollHeight > maxHeight) {
       textareaElement.style.height = maxHeight + 'px';
       textareaElement.style.overflowY = 'auto';
@@ -85,16 +88,51 @@
     adjustHeight();
   }
 
+  // --- (Lógica de "Contenidos" y "postMessage") ---
 
   const misContenidos = [
     {
       titulo: "Guía de Estilo de JavaScript",
-      contenido: "El código debe ser claro y legible..."
-    }, 
-
+      contenido: "El código debe ser claro y legible. Usar 'const' y 'let' en lugar de 'var'. La indentación debe ser de 2 espacios. Evitar comentarios innecesarios."
+    }, {
+      titulo: "Optimización de Rendimiento Web",
+      contenido: "Minimizar el CSS y JavaScript es crucial. Comprimir imágenes usando formatos modernos como WebP. Utilizar 'lazy loading' para imágenes fuera del 'viewport' inicial."
+    }, {
+      titulo: "Notas sobre la API de Gemini Nano",
+      contenido: "La API 'LanguageModel' se ejecuta en el dispositivo (on-device). Es ideal para tareas de resumen y chat contextual sin depender de un servidor. El manejo de la cuota ('quota') es automático y borra el historial antiguo si se excede."
+    }
   ];
 
-  // Click en un Chat de la Sidebar (para chats ANTIGUOS)
+  // --- 1. Lógica (Manejadores de Eventos) ---
+
+  // Botón: "Añadir Tema al Chat"
+  function handleUpdateSystemPrompt() {
+    const title = newContextTitle.trim();
+    const body = newContextBody.trim();
+
+    if (!title || !body || isLoading || !isSessionReady || !chatSessionId) {
+      console.warn("No se puede actualizar el contexto.");
+      return;
+    }
+
+    // Formato correcto para añadir al prompt
+    const systemContent = `Eres un asistente experto...`; // (Tu prompt base)
+    const formattedContent = systemContent + `\n\n---\n\n# ${title}\n\n${body}`;
+    
+    console.log(`Svelte: Solicitando actualizar system prompt para ${chatSessionId}`);
+    chatStore.setError("Actualizando contexto del sistema..."); 
+    
+    window.parent.postMessage({
+      action: 'requestSystemUpdate',
+      requestId: chatSessionId,
+      newContent: formattedContent
+    }, '*');
+    
+    newContextTitle = "";
+    newContextBody = "";
+  }
+  
+  // Click en un Chat de la Sidebar
   function handleLoadChat(id: string) {
     if (isLoading) return;
     console.log(`Svelte: Cargando chat ${id}`);
@@ -106,34 +144,21 @@
     }, '*');
   }
 
-  // Botón: "+ Nuevo Chat" (Vuelve a la pantalla de selección de proyecto)
+  // Botón: "+ Nuevo Chat"
   function handleNewChatClick() {
     console.log("Svelte: Preparando para nuevo chat...");
     chatStore.clearActiveChat();
   }
-  
-  // ¡NUEVO! Se llama al hacer clic en un Proyecto.
-  function handleCreateSessionFromProject(project: Project) {
-    if (isLoading) return;
 
-    const dynamicContenidos = project.webpages.map(webpage => ({
-      titulo: webpage.title,
-      contenido: webpage.markdownSummaryLong 
-    }));
-
-    if (dynamicContenidos.length === 0) {
-      alert(`El proyecto "${project.name}" no tiene páginas para chatear.`);
-      return;
-    }
-
-    const newSessionId = `chat_proj_${project.id}_${Date.now()}`;
-    console.log(`Svelte: Creando nuevo chat desde proyecto "${project.name}"`);
+  // Botón: "Cargar Documentos e Iniciar Chat"
+  function handleCreateNewSession() {
+    const newSessionId = `chat_${Date.now()}`;
+    console.log(`Svelte: Creando nuevo chat ${newSessionId}`);
     chatStore.startLoading(newSessionId, true); 
-
     window.parent.postMessage({
       action: 'requestChatInit',
       requestId: newSessionId,
-      misContenidos: dynamicContenidos
+      misContenidos: misContenidos
     }, '*');
   }
 
@@ -153,17 +178,20 @@
   function handleSend() {
     const userText = inputValue.trim();
     if (!userText || isLoading || !isSessionReady) return;
+    
     chatStore.startSending(userText);
+    
     window.parent.postMessage({
       action: 'requestChatSend',
       requestId: chatSessionId,
       userText: userText
     }, '*');
+
     inputValue = "";
-    setTimeout(adjustHeight, 0);
+    setTimeout(adjustHeight, 0); // Resetea la altura del textarea
   }
   
-  // Tecla "Enter"
+  // Tecla "Enter" en el Textarea
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -172,13 +200,17 @@
   }
 
   // --- 2. Lógica (Receptor de Mensajes) ---
+  
   function handleWindowMessage(event: MessageEvent) {
     const { action } = event.data;
+
     if (action === 'chatListResponse') {
       chatStore.setChatList(event.data.chatList);
       return;
     }
+    
     const { requestId } = event.data;
+    
     if (action === 'chatDestroyed') {
       if (requestId === chatSessionId) {
         chatStore.setDestroyed();
@@ -186,24 +218,37 @@
       window.parent.postMessage({ action: 'getChatListRequest' }, '*');
       return;
     }
+
     if (requestId !== chatSessionId) {
-      return; 
+      return; // Ignora mensajes de chats no activos
     }
+    
     const { error, message, history, lastMessage, response } = event.data;
+
     switch (action) {
-      case 'chatReady': chatStore.setSessionReady(); break;
-      case 'chatHistoryRestored': chatStore.setHistoryRestored(history, lastMessage); break;
-      case 'chatResponse': chatStore.setResponse(response); break;
-      case 'chatQuotaOverflow': chatStore.setQuotaOverflow(message); break;
-      
-      // --- ¡ELIMINADO! ---
-      // 'case 'chatSystemUpdated': ...' ha sido borrado.
-      
-      case 'chatError': chatStore.setError(error); break;
+      case 'chatReady':
+        chatStore.setSessionReady();
+        break;
+      case 'chatHistoryRestored':
+        chatStore.setHistoryRestored(history, lastMessage);
+        break;
+      case 'chatResponse':
+        chatStore.setResponse(response);
+        break;
+      case 'chatQuotaOverflow':
+        chatStore.setQuotaOverflow(message);
+        break;
+      case 'chatSystemUpdated':
+        chatStore.setSystemUpdated(message);
+        break;
+      case 'chatError':
+        chatStore.setError(error);
+        break;
     }
   }
 
   // --- 3. Lógica (Ciclo de Vida) ---
+  
   onMount(() => {
     window.addEventListener('message', handleWindowMessage);
     window.parent.postMessage({ action: 'getChatListRequest' }, '*');
@@ -212,43 +257,39 @@
   onDestroy(() => {
     window.removeEventListener('message', handleWindowMessage);
   });
-
-
 </script>
 
+<!-- 
+  ======================================================
+  ESTILOS:
+  CSS de la lógica de sesiones (para la sidebar)
+  ======================================================
+-->
 <style>
   :global(body, html) {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+
+  /* Contenedor principal que divide Sidebar / Chat */
   .layout-wrapper {
     display: flex;
     font-family: sans-serif;
-    height: 100vh;
-    width: 100vw;
+    height: 100vh; /* Ocupa toda la altura de la ventana */
+    width: 100vw;  /* Ocupa toda la anchura */
     box-sizing: border-box;
-    overflow: hidden;
+    overflow: hidden; /* Evita scrolls dobles */
   }
 
   /* --- Sidebar (Lista de Sesiones) --- */
   .sidebar {
-    width: 240px;
+    width: 240px; /* Un poco más ancho */
     flex-shrink: 0;
     border-right: 1px solid #e0e0e0;
     background: #f7f7f7;
     display: flex;
     flex-direction: column;
-    /* ¡NUEVO! Transición para colapsar */
-    transition: width 0.2s ease, opacity 0.2s ease;
-    opacity: 1;
   }
-  /* ¡NUEVO! Estilo colapsado */
-  .sidebar.hidden {
-    width: 0;
-    opacity: 0;
-    overflow: hidden;
-  }
-
   .sidebar-header {
     padding: 12px;
     border-bottom: 1px solid #e0e0e0;
@@ -266,6 +307,7 @@
   .sidebar-header button:hover {
     background-color: #555;
   }
+
   .sidebar-list {
     flex-grow: 1;
     overflow-y: auto;
@@ -299,13 +341,18 @@
     border-radius: 50%;
     margin-left: 8px;
   }
+
+  /* --- Contenedor del Chat (Derecha) --- */
   .main-content {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    /* Importante: forzar que el hijo ocupe toda la altura */
     height: 100%; 
     overflow: hidden;
   }
+
+  /* Estado de bienvenida (cuando no hay chat) */
   .welcome-placeholder {
     display: flex;
     flex-direction: column;
@@ -317,10 +364,25 @@
     text-align: center;
     color: #666;
   }
+  .welcome-placeholder button {
+    padding: 12px 20px;
+    font-size: 16px;
+    background-color: #333;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 20px;
+  }
+  .welcome-placeholder button:disabled {
+    background-color: #a0a0a0;
+  }
   .welcome-placeholder #status {
     margin-top: 15px;
     font-style: italic;
   }
+
+  /* Estilos para el markdown renderizado */
   .chat-message .markdown-content > *:first-child {
     margin-top: 0;
   }
@@ -332,87 +394,21 @@
     padding-left: 1.2em;
   }
 
-  /* --- Estilos para la lista de proyectos (sin cambios) --- */
-  .project-list {
-    width: 100%;
-    max-width: 360px;
-    max-height: 300px;
-    overflow-y: auto;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    background: #fff;
-    margin-top: 20px;
-  }
-  .project-item {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 12px 16px;
-    background: #fff;
-    border: none;
-    border-bottom: 1px solid #e0e0e0;
-    cursor: pointer;
-    box-sizing: border-box; 
-  }
-  .project-item:last-child {
-    border-bottom: none;
-  }
-  .project-item:hover {
-    background: #f9f9f9;
-  }
-  .project-item:disabled {
-    opacity: 0.5;
-    background: #f0f0f0;
-  }
-  .project-item .name {
-    font-weight: 600;
-    color: #333;
-    font-size: 1em;
-  }
-  .project-item .count {
-    font-size: 0.85em;
-    color: #777;
-    margin-top: 2px;
-  }
-  .seed-button {
-    margin-top: 16px;
-    padding: 8px 12px;
-    background-color: #555;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-  }
-  .seed-button:disabled {
-    background-color: #aaa;
-  }
-
-  /* --- ¡NUEVO! Estilo para el botón de colapsar --- */
-  .sidebar-toggle-btn {
-    background: none;
-    border: none;
-    padding: 0 4px;
-    cursor: pointer;
-    margin-right: 10px;
-    border-radius: 4px;
-  }
-  .sidebar-toggle-btn svg {
-    width: 20px;
-    height: 20px;
-    color: #555;
-    stroke-width: 2.5;
-  }
-  .sidebar-toggle-btn:hover {
-    background-color: #f0f0f0;
-  }
 </style>
 
+<!-- 
+  ======================================================
+  HTML:
+  Estructura Híbrida (Sidebar + Chat UI)
+  ======================================================
+-->
 <div class="layout-wrapper">
 
-  <div class="sidebar" class:hidden={isSidebarHidden}>
+  <!-- 1. Sidebar (de la lógica de sesiones) -->
+  <div class="sidebar">
     <div class="sidebar-header">
       <button on:click={handleNewChatClick}>
-        + New Chat
+        + Nuevo Chat
       </button>
     </div>
     <div class="sidebar-list">
@@ -435,64 +431,47 @@
     </div>
   </div>
 
+  <!-- 2. Contenido Principal -->
   <div class="main-content">
     
     {#if !chatSessionId}
+      <!-- 2A. Pantalla de Bienvenida (fusionada) -->
       <div class="welcome-placeholder">
         <div class="w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+          <!-- (Asegúrate de que esta imagen esté en tu carpeta 'public') -->
           <img src="icon1.png" alt="Botsi" style="width: 64px; height: 64px;" />
         </div>
         <h3 class="text-lg font-semibold text-gray-800 mb-2">
-          Hola, soy Botsi
+          Hola soy Botsi
         </h3>
-        <p class="text-sm text-gray-600">Selecciona un proyecto para comenzar a chatear:</p>
+        <p class="text-sm text-gray-600">Crea un nuevo chat o carga tus documentos.</p>
         
-        <div class="project-list">
-          {#if isLoadingProjects}
-            <div style="padding: 20px; color: #888;">Cargando proyectos...</div>
-          {:else if allProjects.length === 0}
-            <div style="padding: 20px; color: #888;">
-              No tienes proyectos.
-            </div>
-          {:else}
-            {#each allProjects as project (project.id)}
-              <button 
-                class="project-item"
-                on:click={() => handleCreateSessionFromProject(project)}
-                disabled={isLoading}
-              >
-                <div class="name">{project.name}</div>
-                <div class="count">{project.webpages.length} páginas</div>
-              </button>
-            {/each}
-          {/if}
-        </div>
-        
-
-
-        <div id="status" style="margin-top: 16px;">{statusInfo}</div>
+        <button on:click={handleCreateNewSession} disabled={isLoading}>
+          {isLoading ? 'Cargando...' : 'Cargar Documentos e Iniciar Chat'}
+        </button>
+        <div id="status">{statusInfo}</div>
       </div>
     
     {:else}
+      <!-- 2B. Interfaz de Chat Activa (del componente 1) -->
       <div class="flex flex-col h-full content-container" style="height: 100%;">
         
-        <div class="px-4 py-2 border-b border-gray-200 bg-white text-sm text-gray-600 italic flex items-center">
-          
-          <button title="Ocultar/Mostrar chats" class="sidebar-toggle-btn" on:click={toggleSidebar}>
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          
-          <span>{statusInfo}</span>
+        <!-- Estado (arriba) -->
+        <div class="px-4 py-2 border-b border-gray-200 bg-white text-sm text-gray-600 italic">
+          {statusInfo}
         </div>
 
+        <!-- Área de mensajes -->
         <div class="chat-container flex-1 p-4 overflow-y-auto" bind:this={chatLogElement}>
           {#each chatHistory as message (message.content + Math.random())}
+            
+            <!-- Mensajes del Sistema (Errores, etc.) -->
             {#if message.role === 'error' || message.role === 'system-warning'}
               <div class="text-center text-xs text-red-600 my-2 p-2 bg-red-50 rounded-md">
                 {message.content}
               </div>
+            
+            <!-- Mensajes de Chat (Usuario y Asistente) -->
             {:else if message.role === 'user' || message.role === 'assistant'}
               <div class="chat-message flex w-full mb-4 {message.role === 'user' ? 'justify-end' : 'justify-start'}">
                 <div 
@@ -502,6 +481,7 @@
                   {#if message.role === 'user'}
                     {message.content}
                   {:else}
+                    <!-- Renderiza el Markdown del Asistente -->
                     <div class="markdown-content">
                       {@html marked.parse(message.content)}
                     </div>
@@ -511,17 +491,46 @@
             {/if}
           {/each}
           
+          <!-- Indicador de "Escribiendo..." -->
           {#if isLoading}
-             {/if}
+             <!-- (Asegúrate de que 'TypingIndicator.svelte' exista) -->
+             <TypingIndicator />
+          {/if}
         </div>
 
+        <!-- Formulario "Añadir Tema" (integrado) -->
+        <div class="bg-gray-50 p-3 border-t border-b border-gray-200">
+          <input 
+            type="text" 
+            placeholder="Título del nuevo tema" 
+            bind:value={newContextTitle}
+            disabled={!isSessionReady || isLoading}
+            class="w-full p-2 border border-gray-300 rounded mb-2 text-sm"
+          >
+          <textarea 
+            placeholder="Contenido del nuevo tema..." 
+            bind:value={newContextBody}
+            disabled={!isSessionReady || isLoading}
+            rows="2"
+            class="w-full p-2 border border-gray-300 rounded mb-2 text-sm"
+          ></textarea>
+          <button 
+            on:click={handleUpdateSystemPrompt} 
+            disabled={!isSessionReady || isLoading || !newContextTitle || !newContextBody}
+            class="w-full px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 disabled:bg-gray-300"
+          >
+            Añadir Tema al Chat
+          </button>
+        </div>
+
+        <!-- Área de Input (fija en la parte inferior) -->
         <div class="bg-white border-t border-gray-200 px-4 py-3 flex gap-2 items-end">
           <textarea
             bind:this={textareaElement}
             bind:value={inputValue}
             on:input={handleInput}
             on:keydown={handleKeydown}
-            placeholder={isSessionReady ? "Write your question..." : "Loading session..."}
+            placeholder={isSessionReady ? "Escribe tu pregunta..." : "Cargando sesión..."}
             class="flex-1 p-2 text-gray-700 transition-colors resize-none"
             rows="1"
             style="border: none; outline: none; min-height: 40px; max-height: 120px; line-height: 1.5;"
@@ -536,8 +545,13 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
             </svg>
           </button>
+          <button on:click={handleSeedData} disabled={isLoading}>
+  {isLoading ? 'Cargando...' : 'Cargar Proyecto de Prueba (UML)'}
+</button>
         </div>
+
       </div>
     {/if}
+    
   </div>
-</div>
+</div>>

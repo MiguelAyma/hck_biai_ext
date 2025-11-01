@@ -4,6 +4,7 @@
   import SummaryCard from './summaryCard.svelte';
   import SkeletonCard from './skeletonCard.svelte';
   import { notificationStore } from '../stores/notificationStore';
+  import { projectsStore } from '../stores/projectsStore';
 
   export let content: string = '';
 
@@ -40,6 +41,19 @@
 
     if (action === 'summaryComplete') {
       handleSummaryComplete(length, summary);
+      console.log(`Resumen ${length} recibido:`, summary);
+      
+    //   // Actualizar el estado de generación
+    //  // generatingStates[length] = false;
+
+    //   // Guardar en el store según el tipo de resumen
+    //   if (length === 'long') {
+    //     projectsStore.setMarkdownSummaryLong(currentProjectId, currentWebpageId, summary);
+    //   } else if (length === 'medium') {
+    //     projectsStore.setMarkdownSummaryMedium(currentProjectId, currentWebpageId, summary);
+    //   } else if (length === 'short') {
+    //     projectsStore.setMarkdownSummaryShort(currentProjectId, currentWebpageId, summary);
+    //   }
     } else if (action === 'summaryError') {
       handleSummaryError(length, error);
     }
@@ -84,12 +98,12 @@
     generatingStates[length] = false;
   }
 
+  //summariesView.svelte
   async function generateSummary(length: SummaryLength) {
     // if (!geminiAvailable) {
     //   errorMessage = "Gemini Nano no está disponible en este navegador. Asegúrate de usar Chrome Canary o Dev con las flags habilitadas.";
     //   return;
     // }
-
     generatingStates[length] = true;
     errorMessage = '';
 
@@ -156,7 +170,6 @@
   onDestroy(() => {
     window.removeEventListener('message', handleMessage);
   });
-  
 </script>
 
 <div class="content-container p-4">

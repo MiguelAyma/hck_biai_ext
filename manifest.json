@@ -3,7 +3,7 @@
   "name": "Botsi Chat",
   "version": "2.0.0",
   "description": "Extension de chat con IA para analizar contenido web",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "unlimitedStorage"],
   "background": {
     "service_worker": "background.js"
   },

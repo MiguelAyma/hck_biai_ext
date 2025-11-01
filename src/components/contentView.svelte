@@ -1,123 +1,14 @@
-<!-- <script>
-  //contentView.svelte
-  import { marked } from 'marked';
-  import { onMount } from 'svelte';
-
-  export let content = '';
-
-  let activeTab = 'content';
-  let isProcessing = false;
-  let aiContent = '';
-  let aiRequestId = null;
-
-  $: htmlContent = content ? marked.parse(content) : '';
-
-  onMount(async () => {
-    // Escuchar cuando el proceso de IA se complete
-    chrome.runtime.onMessage.addListener((message) => {
-      if (message.command === 'aiAnalysisComplete' && message.requestId === aiRequestId) {
-        console.log("Markdown View: Análisis de IA completado");
-        aiContent = message.aiContent;
-        isProcessing = false;
-      }
-    });
-
-    // Cargar el análisis de IA si ya existe en storage
-    const data = await chrome.storage.local.get('aiAnalysisCache');
-    if (data.aiAnalysisCache) {
-      aiContent = data.aiAnalysisCache;
-    }
-  });
-
-  async function handleAiTab() {
-    if (activeTab !== 'ai') {
-      activeTab = 'ai';
-      
-      if (!aiContent) {
-        isProcessing = true;
-        aiRequestId = Date.now();
-
-        // Enviar el contenido al background para procesamiento
-        chrome.runtime.sendMessage({
-          command: 'startAiAnalysis',
-          content: content,
-          requestId: aiRequestId
-        });
-
-        
-        // el mensaje 'aiAnalysisComplete' desde el background
-      }
-    }
-  }
-</script>
-
-<div class="content-container">
-  <div class="border-b border-gray-200 mb-4">
-    <div class="flex gap-2">
-      <button
-        class="px-4 py-2 font-medium transition-colors {activeTab === 'content' ? 'text-black border-b-2 border-black' : 'text-gray-500 hover:text-gray-700'}"
-        on:click={() => activeTab = 'content'}
-      >
-        Contenido
-      </button>
-      <button
-        class="px-4 py-2 font-medium transition-colors {activeTab === 'ai' ? 'text-black border-b-2 border-black' : 'text-gray-500 hover:text-gray-700'}"
-        on:click={handleAiTab}
-      >
-        Análisis IA
-      </button>
-    </div>
-  </div>
-
-  {#if activeTab === 'content'}
-    {#if !htmlContent}
-      <div class="text-center py-20">
-        <div class="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-2xl flex items-center justify-center">
-          <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-          </svg>
-        </div>
-        <p class="text-gray-400 text-lg">No se encontró contenido relevante en la página.</p>
-      </div>
-    {:else}
-      <div class="prose max-w-none text-gray-700 p-4">
-        {@html htmlContent}
-      </div>
-    {/if}
-  {:else}
-    {#if isProcessing}
-      <div class="flex flex-col items-center justify-center py-20 px-4">
-        <div class="relative mb-8">
-          <div class="flex gap-2">
-            <div class="w-3 h-3 bg-pink-500 rounded-full animate-bounce" style="animation-delay: 0ms;"></div>
-            <div class="w-3 h-3 bg-pink-500 rounded-full animate-bounce" style="animation-delay: 150ms;"></div>
-            <div class="w-3 h-3 bg-pink-500 rounded-full animate-bounce" style="animation-delay: 300ms;"></div>
-          </div>
-        </div>
-        <div class="w-full max-w-xs bg-gray-100 rounded-full h-1 overflow-hidden mb-4">
-          <div class="h-full bg-gradient-to-r from-pink-400 to-pink-600 animate-pulse"></div>
-        </div>
-        <p class="text-gray-700 font-medium text-lg mb-1">Analizando contenido con IA</p>
-        <p class="text-gray-500 text-sm">Esto puede tomar unos segundos...</p>
-      </div>
-    {:else}
-      <div class="prose max-w-none text-gray-700 p-4">
-        {@html marked.parse(aiContent)}
-      </div>
-    {/if}
-  {/if}
-</div> -->
-
 <script>
   import { marked } from 'marked';
   import { onMount, onDestroy } from 'svelte';
-
+  import {cleanMarkdownByIaStore} from '../stores/contentStore';
   export let content = '';
 
   let activeTab = 'content';
   let isProcessing = false;
   let aiContent = '';
   let aiRequestId = null;
+  //let isCleaning = false;
   
   // Estados para traducción
   let isTranslating = false;
@@ -131,12 +22,194 @@
   let translationProgress = 0;
   let translationStatus = '';
 
+    let initialJsonOutput = null;
+  let finalJsonOutput = null;
+  
+  let statusInfo = "Listo.";
+  let tokenUsage = "Tokens: 0";
+  let isCleaning = false;
+  let currentCleanId = null;
+  let structuredData = null;
+
+  // --- NUEVAS VARIABLES DE ESTADO ---
+  let finalMarkdownOutput = ""; // Almacena el markdown limpio (string)
+  let renderedHtmlOutput = "...esperando limpieza..."; // Almacena el 
   // Estado para descarga PDF
   let isDownloadingPDF = false;
+
+  class MarkdownSection {
+    constructor(title, id, level) {
+      this.id = id;
+      this.level = level;
+      this.title = title.trim();
+      this.paragraphs = [];
+      this.content = ''; 
+      this.subsections = [];
+    }
+  }
 
   $: htmlContent = content ? marked.parse(content) : '';
   $: displayContent = translatedContent || aiContent;
   $: displayHtml = displayContent ? marked.parse(displayContent) : '';
+
+  function handleParse() {
+    statusInfo = "Estructurando markdown localmente...";
+    finalJsonOutput = null;
+    finalMarkdownOutput = ""; // Limpiar
+    renderedHtmlOutput = "...esperando limpieza..."; // Limpiar
+    tokenUsage = "Tokens: 0";
+    // <-- CAMBIO: Reseteamos el store por si había un valor anterior
+    cleanMarkdownByIaStore.reset();
+
+    const text = content;
+    const lines = text.split('\n');
+    const root = new MarkdownSection("root", "root", 0);
+    const path = [root];
+    const counters = {};
+    const pCounters = {};
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      const level = trimmedLine.match(/^(#+)\s/)?.[1].length || 0;
+      let currentParent = path[path.length - 1];
+      
+      if (level > 0) {
+        counters[level] = (counters[level] || 0);
+        const newId = `h${level}_${counters[level]}`;
+        const newSection = new MarkdownSection(trimmedLine, newId, level);
+        while (currentParent.level >= level) {
+          path.pop();
+          currentParent = path[path.length - 1];
+        }
+        currentParent.subsections.push(newSection);
+        path.push(newSection);
+        counters[level]++;
+      } else {
+        if (currentParent.level === 1) { 
+          pCounters[currentParent.id] = (pCounters[currentParent.id] || 0);
+          const pId = `p_${currentParent.id}_${pCounters[currentParent.id]}`;
+          currentParent.paragraphs.push({ id: pId, text: trimmedLine });
+          pCounters[currentParent.id]++;
+        } else { 
+          // --- MODIFICACIÓN IMPORTANTE ---
+          // Cambiamos ' ' por '\n' para preservar saltos de línea (ej. en listas)
+          currentParent.content += trimmedLine + '\n'; 
+        }
+      }
+    }
+    
+    structuredData = root.subsections; 
+    structuredData.forEach(s => {
+      s.content = s.content.trim();
+      s.subsections.forEach(sub => sub.content = sub.content.trim());
+    });
+    
+    statusInfo = "Estructura generada. Listo para limpiar.";
+    initialJsonOutput = JSON.stringify(structuredData, null, 2);
+  }
+
+  async function startAiClean() {
+    if (!structuredData || structuredData.length === 0) {
+      alert("Por favor, primero estructura el markdown.");
+      return;
+    }
+    isCleaning = true;
+    statusInfo = "Enviando petición de limpieza al content script...";
+    tokenUsage = "Tokens: 0";
+    finalJsonOutput = null;
+    finalMarkdownOutput = "";
+    renderedHtmlOutput = "...enviando petición...";
+    currentCleanId = `clean_${Date.now()}`;
+
+    // <-- CAMBIO: Actualizamos el estado de carga en el store
+    cleanMarkdownByIaStore.setLoading(true);
+
+    try {
+      window.parent.postMessage({
+        action: 'requestClean',
+        structuredData: structuredData, 
+        requestId: currentCleanId
+      }, '*');
+      console.log(`Petición 'requestClean' enviada (ID: ${currentCleanId})`);
+    } catch (error) {
+      console.error('Error al enviar petición de limpieza:', error);
+      statusInfo = `Error: ${error.message}`;
+      isCleaning = false;
+      // <-- CAMBIO: Informamos al store del error
+      cleanMarkdownByIaStore.setError(error.message);
+    }
+  }
+
+  function jsonToMarkdown(sections) {
+    let md = "";
+    if (!sections) return md;
+
+    for (const section of sections) {
+      // 1. Añadir el título (ya tiene los #)
+      md += section.title + "\n\n";
+
+      // 2. Añadir párrafos (solo para H1)
+      if (section.paragraphs && section.paragraphs.length > 0) {
+        md += section.paragraphs.map(p => p.text).join("\n\n") + "\n\n";
+      }
+
+      // 3. Añadir contenido (para H2, H3... sin subsecciones)
+      if (section.content) {
+        md += section.content + "\n\n";
+      }
+      
+      // 4. Recursión para subsecciones
+      if (section.subsections && section.subsections.length > 0) {
+        md += jsonToMarkdown(section.subsections);
+      }
+    }
+    return md;
+  }
+
+  function handleWindowMessage(event) {
+    const { action, requestId } = event.data;
+    if (requestId !== currentCleanId) {
+      return;
+    }
+
+    switch (action) {
+      case 'cleanProgress':
+        statusInfo = event.data.message;
+        break;
+
+      case 'cleanComplete':
+        statusInfo = "¡Limpieza completada!";
+        tokenUsage = `Total Tokens (Summed): ${event.data.totalTokens}`;
+        isCleaning = false;
+        currentCleanId = null;
+        
+        // --- MODIFICADO: Generar y renderizar el markdown ---
+        const finalStructure = event.data.finalCleanedStructure;
+        finalJsonOutput = JSON.stringify(finalStructure, null, 2);
+        
+        // 1. Convertir JSON a string Markdown
+        finalMarkdownOutput = jsonToMarkdown(finalStructure);
+        
+        // 2. Renderizar Markdown a HTML
+        renderedHtmlOutput = marked(finalMarkdownOutput);
+        
+        // <-- CAMBIO: ¡Aquí guardamos el contenido final en el store!
+        cleanMarkdownByIaStore.setLoading(false);
+        cleanMarkdownByIaStore.setContent(finalMarkdownOutput);
+
+        break;
+
+      case 'cleanError':
+        statusInfo = `Error: ${event.data.error}`;
+        renderedHtmlOutput = `Error al procesar: ${event.data.error}`;
+        isCleaning = false;
+        currentCleanId = null;
+
+        // <-- CAMBIO: Informamos al store del error
+        cleanMarkdownByIaStore.setError(event.data.error);
+        break;
+    }
+  }
 
   // Handler para mensajes del content script
   function handleMessage(event) {
@@ -184,6 +257,14 @@
     }
   }
 
+   onMount(() => {
+    window.addEventListener('message', handleWindowMessage);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('message', handleWindowMessage);
+  });
+
   onMount(async () => {
     window.addEventListener('message', handleMessage);
 
@@ -215,13 +296,16 @@
       
       if (!aiContent) {
         isProcessing = true;
-        aiRequestId = Date.now();
+        //////////
+        handleParse();
+        startAiClean();
+        // aiRequestId = Date.now();
 
-        chrome.runtime.sendMessage({
-          command: 'startAiAnalysis',
-          content: content,
-          requestId: aiRequestId
-        });
+        // chrome.runtime.sendMessage({
+        //   command: 'startAiAnalysis',
+        //   content: content,
+        //   requestId: aiRequestId
+        // });
       }
     }
   }
@@ -444,7 +528,7 @@
     {/if}
   {:else}
     <!-- Tab de IA con traducción -->
-    {#if isProcessing}
+    {#if isCleaning}
       <div class="flex flex-col items-center justify-center py-20 px-4">
         <div class="relative mb-8">
           <div class="flex gap-2">
@@ -619,7 +703,8 @@
         </div>
       {:else}
         <div class="prose max-w-none text-gray-700 p-4">
-          {@html displayHtml}
+          <!-- {@html displayHtml} -->
+          {@html renderedHtmlOutput}
         </div>
       {/if}
     {/if}
