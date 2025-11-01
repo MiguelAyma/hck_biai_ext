@@ -5,7 +5,7 @@
   // 1. Importa STORES y TIPOS
   import { chatStore, chatInitialState } from '../stores/chatStore';
   import type { ChatMessage } from '../stores/chatStore';
-  import { projectsStore, type Project } from '../stores/projectsStore';
+  import { activeProject, projectsStore, type Project } from '../stores/projectsStore';
   
   // (Si TypingIndicator está en español, puedes descomentar esta línea)
   // import TypingIndicator from './typingIndicator.svelte';
@@ -102,7 +102,7 @@
     window.parent.postMessage({
       action: 'requestChatInit',
       requestId: id,
-      misContenidos: misContenidos
+      misContenidos: $activeProject?.contentProject
     }, '*');
   }
 
@@ -116,15 +116,15 @@
   function handleCreateSessionFromProject(project: Project) {
     if (isLoading) return;
 
-    const dynamicContenidos = project.webpages.map(webpage => ({
-      titulo: webpage.title,
-      contenido: webpage.markdownSummaryLong 
-    }));
+    // const dynamicContenidos = project.webpages.map(webpage => ({
+    //   titulo: webpage.title,
+    //   contenido: webpage.markdownSummaryLong 
+    // }));
 
-    if (dynamicContenidos.length === 0) {
-      alert(`El proyecto "${project.name}" no tiene páginas para chatear.`);
-      return;
-    }
+    // if (dynamicContenidos.length === 0) {
+    //   alert(`El proyecto "${project.name}" no tiene páginas para chatear.`);
+    //   return;
+    // }
 
     const newSessionId = `chat_proj_${project.id}_${Date.now()}`;
     console.log(`Svelte: Creando nuevo chat desde proyecto "${project.name}"`);
@@ -133,10 +133,13 @@
     window.parent.postMessage({
       action: 'requestChatInit',
       requestId: newSessionId,
-      misContenidos: dynamicContenidos
+      misContenidos:  $activeProject?.contentProject
     }, '*');
   }
 
+  onMount(() => {
+    console.log("context iiy: ", $activeProject?.contentProject)
+  });
   // Botón: "X" (para borrar)
   function handleDestroyClick(id: string) {
     if (isLoading) return;
@@ -151,6 +154,8 @@
 
   // Botón: "Enviar"
   function handleSend() {
+
+    console.log("context: ", $activeProject?.contentProject)
     const userText = inputValue.trim();
     if (!userText || isLoading || !isSessionReady) return;
     chatStore.startSending(userText);
@@ -407,7 +412,7 @@
   }
 </style>
 
-<div class="layout-wrapper">
+<div class="layout-wrapper content-container">
 
   <div class="sidebar" class:hidden={isSidebarHidden}>
     <div class="sidebar-header">

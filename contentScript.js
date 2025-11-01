@@ -984,14 +984,13 @@ window.addEventListener('message', (event) => {
           requestId,
           progressCallback
         );
-
         // 4. Enviar resultado FINAL al iframe
         if (iframe && iframe.contentWindow) {
           iframe.contentWindow.postMessage({
             action: 'cleanComplete',
             requestId,
             finalCleanedStructure,
-            totalTokens
+            totalTokens,
           }, '*');
         }
 
@@ -1136,10 +1135,10 @@ window.addEventListener('message', (event) => {
   // -----------------------------------------------------------------
   // MANEJAR INICIALIZACIÓN DE CHAT 
   // -----------------------------------------------------------------
-if (event.data.action === 'requestChatInit') {
+  if (event.data.action === 'requestChatInit') {
     (async () => {
       //  recibimos 'misContenidos' desde Svelte
-      const { requestId, misContenidos } = event.data; 
+      const { requestId, misContenidos } = event.data;
       const iframe = document.getElementById('botsi-container');
 
       try {
@@ -1197,7 +1196,7 @@ if (event.data.action === 'requestChatInit') {
 
   if (event.data.action === 'requestSystemUpdate') {
     (async () => {
-      
+
       const { requestId, newContent } = event.data;
       const iframe = document.getElementById('botsi-container');
 
@@ -1210,11 +1209,11 @@ if (event.data.action === 'requestChatInit') {
         const result = await window.geminiChatService.updateSystemPrompt(requestId, newContent);
 
         iframe.contentWindow.postMessage({
-          action: 'chatSystemUpdated', 
+          action: 'chatSystemUpdated',
           requestId: requestId,
           message: result.message
-        }, '*'); 
-        
+        }, '*');
+
       } catch (error) {
         console.error(error);
         // Envía el error de vuelta a Svelte (usando 'iframe' como tus otros bloques)
@@ -1226,7 +1225,7 @@ if (event.data.action === 'requestChatInit') {
       }
     })();
   }
-    // --- FIN DEL BLOQUE NUEVO ---
+  // --- FIN DEL BLOQUE NUEVO ---
 
 
   if (event.data.action === 'requestChatDestroy') {
@@ -1244,7 +1243,7 @@ if (event.data.action === 'requestChatInit') {
       const iframe = document.getElementById('botsi-container');
       if (window.geminiChatService) {
         const list = await window.geminiChatService.getChatList();
-        
+
         iframe.contentWindow.postMessage({
           action: 'chatListResponse',
           chatList: list
@@ -1252,7 +1251,7 @@ if (event.data.action === 'requestChatInit') {
       }
     })();
   }
-  
+
 }); // Fin del addEventListener
 //FIN GEMINI NANO
 

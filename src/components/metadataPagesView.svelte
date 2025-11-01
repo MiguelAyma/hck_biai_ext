@@ -377,6 +377,7 @@
           ondelete={() => handleDelete(webpage.id)}
           onviewContent={() => handleViewContent(webpage)}
           ongenerateAI={() => handleGenerateAI(webpage.url)}
+          projectId={$activeProject?.id}
         />
       {/each}
     </div>

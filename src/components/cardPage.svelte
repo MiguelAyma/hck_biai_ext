@@ -8,6 +8,7 @@
   import { cleanMarkdownByIaStore, plainTextMarkdownStore } from '../stores/contentStore';
   import { extractPlainTextMarkdown } from '../services/contentExtrator.service';
   import { marked } from 'marked';
+  import { activeProject, projectsStore } from '../stores/projectsStore';
 
 
   export let webpage = {};
@@ -15,6 +16,7 @@
   export let ondelete = () => {};
   export let onviewContent = () => {};
   export let ongenerateAI = () => {};
+  export let projectId = null;
 
   ////////////////////
   let initialJsonOutput = null;
@@ -166,7 +168,7 @@
   }
 
   // --- OYENTE DE RESPUESTAS (Desde contentScript) ---
-  function handleWindowMessage(event) {
+  async function handleWindowMessage(event) {
     const { action, requestId } = event.data;
     if (requestId !== currentCleanId) {
       return;
@@ -185,11 +187,17 @@
         
         // --- MODIFICADO: Generar y renderizar el markdown ---
         const finalStructure = event.data.finalCleanedStructure;
+        //const summaryLong = event.data.summaryLong;
         finalJsonOutput = JSON.stringify(finalStructure, null, 2);
         
         // 1. Convertir JSON a string Markdown
         finalMarkdownOutput = jsonToMarkdown(finalStructure);
-        
+        console.log("finalMarkdownOutput", finalMarkdownOutput);
+
+        //el contenido limpio por AI agregarlo al proyecto actual a la page
+        projectsStore.setRefinedMarkdown(projectId, webpage.id, finalMarkdownOutput);
+
+        await generateSummary(finalMarkdownOutput); 
         // 2. Renderizar Markdown a HTML
         renderedHtmlOutput = marked(finalMarkdownOutput);
         
@@ -211,12 +219,62 @@
     }
   }
 
+  /////////////////////////
+  //summary
+
+  function handleMessage(event) {
+    const { action, requestId, summary, length, error } = event.data;
+
+    if (action === 'summaryComplete') {
+
+      projectsStore.setMarkdownSummaryLong(projectId, webpage.id, summary);
+      projectsStore.appendToProjectContent(projectId, webpage.title, summary);
+
+       console.log("proyect current", $activeProject);
+
+      console.log(`Resumen ${length} recibido:`, summary);
+    } else if (action === 'summaryError') {
+      handleSummaryError(length, error);
+    }
+  }
+
+  async function generateSummary(content) { 
+    console.log("content", content);
+    try {
+      if (!content || content.trim().length < 150) {
+        throw new Error("El contenido de la página es demasiado corto para generar un resumen.");
+      }
+      const requestId = `summary_${length}_${Date.now()}`;
+
+      // Enviar petición al content script via postMessage
+      window.parent.postMessage({
+        action: 'requestSummary', //requestSummary nombre del evento a ejecutar en contentScript.js
+        content,
+        length: 'long',
+        requestId
+      }, '*');
+
+      console.log(`Petición de resumen long enviada (ID: ${requestId})`);
+
+    } catch (error) {
+      console.error(`Error al solicitar resumen long:`, error);
+      errorMessage = error.message;
+    }
+  }
+
   onMount(() => {
     window.addEventListener('message', handleWindowMessage);
   });
 
   onDestroy(() => {
     window.removeEventListener('message', handleWindowMessage);
+  });
+  onMount(() => {
+    window.addEventListener('message', handleMessage);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('message', handleMessage);
   });
 
   ////////////FIN CLEAN CONTENT AI
@@ -241,9 +299,9 @@
    // ongenerateAI(webpage.url);
   }
 
-  async function handleExtractContentPlainText() {
-    await extractPlainTextMarkdown(urlPage, projectId)
-  }
+  // async function handleExtractContentPlainText() {
+  //   await extractPlainTextMarkdown(urlPage, projectId)
+  // }
 
   function handleClickOutside(event) {
     if (isMenuOpen && !event.target.closest('.dropdown-container')) {

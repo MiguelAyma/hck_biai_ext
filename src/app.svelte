@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Header from './components/header.svelte';
-  import ChatView from './components/chatView_wno.svelte';
+  import ChatView from './components/chatView.svelte';
   import ContentView   from './components/contentView.svelte';
   import SummariesView from './components/summariesView.svelte';
   import Footer from './components/footer.svelte';

@@ -4,11 +4,11 @@ class GeminiService {
     this.activeRequests = new Map();
   }
   async generateSummary(content, length, requestId) {
-    console.log(`Gemini: Generando resumen ${length} (ID: ${requestId})`);
+    console.log(`Gemini: Generando resumen ${length} (ID: ${requestId}, content: ${content})`);
 
     try {
       // Validar que el contenido sea suficiente
-      if (!content || content.trim().length < 150) {
+      if (!content || content.length < 150) {
         throw new Error("El contenido es demasiado corto para generar un resumen.");
       }
       const sharedContext = "You are an expert AI assistant specializing in distilling web content from Markdown format into clear and concise summaries. Your goal is to help a user quickly grasp the core message, key arguments, and important conclusions of a webpage. Focus on extracting the most valuable information.";
@@ -277,11 +277,11 @@ class GeminiChatService {
   constructor() {
     this.activeSessions = new Map();
     // Esta es la llave MAESTRA que guardará TODOS los chats
-    this.STORAGE_KEY = 'geminiAllChatSessions'; 
+    this.STORAGE_KEY = 'geminiAllChatSessions';
   }
 
   // --- NUEVOS MÉTODOS DE AYUDA (ASÍNCRONOS) ---
-  
+
   /** Obtiene el mapa completo de todas las sesiones guardadas */
   async _getAllSessions() {
     try {
@@ -311,10 +311,8 @@ class GeminiChatService {
   async initializeSession(requestId, misContenidos, callbacks) {
     console.log(`ChatService: Inicializando sesión (ID: ${requestId})`);
 
-    const markdownText = misContenidos.map(doc => {
-      return `# ${doc.titulo}\n\n${doc.contenido}`;
-    }).join('\n\n---\n\n');
-    
+    const markdownText = misContenidos
+
 
 
     const systemContent = `Eres un asistente experto cuya única función es responder preguntas basadas EXCLUSIVAMENTE en el contenido de los **múltiples temas** proporcionados.
@@ -330,7 +328,7 @@ class GeminiChatService {
     4.  **Párrafos:** Separa los párrafos con una línea en blanco para mayor claridad.
     --- INICIO DE LOS TEMAS ---
     ${markdownText}`;
-    
+
     const sessionsMap = await this._getAllSessions();
     let sessionConfig;
     let sessionRestaurada = false;
@@ -351,7 +349,7 @@ class GeminiChatService {
       console.log(`ChatService: Creando nueva sesión ${requestId}.`);
       sessionConfig = {
         // Guardamos el systemContent para la comprobación
-        systemContent: systemContent, 
+        systemContent: systemContent,
         initialPrompts: [{
           role: "system",
           content: systemContent
@@ -367,7 +365,7 @@ class GeminiChatService {
       session.onquotaoverflow = () => { /* ... (tu callback) ... */ };
 
       this.activeSessions.set(requestId, session);
-      
+
       // Guardar el estado actual en el mapa
       sessionsMap[requestId] = sessionConfig;
       await this._saveAllSessions(sessionsMap);
@@ -381,8 +379,8 @@ class GeminiChatService {
       if (callbacks.onSessionReady) {
         callbacks.onSessionReady();
       }
-      
-    } catch (error) { console.log(`Error al inicializar ${error} `);}
+
+    } catch (error) { console.log(`Error al inicializar ${error} `); }
   }
 
   /**
@@ -391,10 +389,10 @@ class GeminiChatService {
   async sendMessage(requestId, userText) {
     const session = this.activeSessions.get(requestId);
     if (!session) { throw new Error("Sesión no inicializada."); }
-    
+
     try {
       const response = await session.prompt(userText);
-      
+
       // Guardar la conversación en el mapa de chrome.storage
       const sessionsMap = await this._getAllSessions();
       if (sessionsMap[requestId]) {
@@ -402,10 +400,10 @@ class GeminiChatService {
         sessionsMap[requestId].initialPrompts.push({ role: 'assistant', content: response });
         await this._saveAllSessions(sessionsMap);
       }
-      
+
       return { response };
 
-    } catch (error) { console.log(`Error al enviar mensaje ${error} `);}
+    } catch (error) { console.log(`Error al enviar mensaje ${error} `); }
   }
 
   /**
@@ -420,7 +418,7 @@ class GeminiChatService {
         this.activeSessions.delete(requestId);
       } catch (e) { console.log(`Error al destruir sesión ${error} `); }
     }
-    
+
     // Eliminar del almacenamiento persistente
     const sessionsMap = await this._getAllSessions();
     if (sessionsMap[requestId]) {
@@ -440,7 +438,7 @@ class GeminiChatService {
   async getChatList() {
     const sessionsMap = await this._getAllSessions();
     const chatList = [];
-    
+
     for (const id in sessionsMap) {
       const config = sessionsMap[id];
       // Intenta encontrar el primer mensaje del usuario como título
@@ -457,10 +455,10 @@ class GeminiChatService {
 
   async updateSystemPrompt(requestId, newContent) {
     console.log(`ChatService: Solicitado actualizar system prompt para ${requestId}`);
-    
+
     // 1. Obtener TODAS las sesiones (el mapa completo)
     const sessionsMap = await this._getAllSessions();
-    
+
     // 2. Encontrar la sesión específica
     const sessionConfig = sessionsMap[requestId];
 
@@ -474,16 +472,16 @@ class GeminiChatService {
     if (!systemPrompt) {
       throw new Error(`No se encontró 'system prompt' para la sesión ${requestId}.`);
     }
-    
+
     // 4. ¡AÑADIR el nuevo SystemContent con los nuevos Contextos!
     systemPrompt.content = newContent;
-    
+
     // 5. Guardar el mapa COMPLETO (con la sesión modificada)
 
     await this._saveAllSessions(sessionsMap);
-    
+
     console.log(`ChatService: System prompt for ${requestId} actualizado y guardado.`);
-    
+
     // 6. Devolver éxito
     return { success: true, message: 'Contexto del sistema actualizado.' };
   }
