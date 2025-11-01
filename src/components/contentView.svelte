@@ -22,7 +22,7 @@
   let translationProgress = 0;
   let translationStatus = '';
 
-    let initialJsonOutput = null;
+  let initialJsonOutput = null;
   let finalJsonOutput = null;
   
   let statusInfo = "Listo.";

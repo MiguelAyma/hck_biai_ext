@@ -13,6 +13,9 @@
   import { plainTextMarkdownStore } from "../stores/contentStore";
   import { extractPlainTextMarkdown } from "../services/contentExtrator.service";
   import { projectPageStore } from "../stores/projectStore";
+  import SparklesIcon from "../icons/sparklesIcon.svelte";
+  import CardPage from "./cardPage.svelte";
+  import { createPageId } from "../utils/createPageId";
 
   let isAdding = false;
   let showProjectSelector = false;
@@ -27,9 +30,14 @@
     
     try {
       // Usar el método que verifica duplicados
-      const added = await projectPagesService.extractAndAddIfNew(projectId);
+      const urlPage = await projectPagesService.extractAndAddIfNew(projectId);
+      console.log("urlPage", urlPage);
+      const newIdPage = createPageId(urlPage);
+      console.log("newIdPage", newIdPage);
+      projectsStore.setStrippedMarkdown(projectId, newIdPage, $plainTextMarkdownStore.content);
+      // await extractPlainTextMarkdown(urlPage, projectId)
       
-      if (!added) {
+      if (!urlPage) {
         alert("Esta página ya existe en el proyecto");
       }
     } catch (error) {
@@ -112,7 +120,7 @@
     }
   });
 
-  const extractFullMarkdown = async (url: string) => {
+  const extractFullMarkdownPlain = async (url: string) => {
     try {
       console.log("URL extraida:", url);
       await extractPlainTextMarkdown(url);
@@ -134,6 +142,34 @@
     projectPageStore.setIdProject(projectId);
     showProjectsMenu = false;
   };
+
+  /////////////////////////
+  let openMenuId: string | null = null;
+
+  function handleToggleMenu(event: CustomEvent) {
+    const { id } = event.detail;
+    openMenuId = openMenuId === id ? null : id;
+  }
+
+  function handleCloseMenu() {
+    openMenuId = null;
+  }
+
+  function handleDelete( idPage: string) {
+    console.log('Eliminando webpage con id:', idPage);
+    openMenuId = null;
+    handleRemovePage($activeProject?.id || "", idPage)
+  }
+
+  function handleViewContent(webpage: any) {
+    console.log('Ver contenido de:', webpage);
+    openMenuId = null;
+  }
+
+  function handleGenerateAI(url: string) {
+    console.log('Generar AI para URL:', url);
+    openMenuId = null;
+  }
 
 </script>
 
@@ -332,97 +368,17 @@
   {:else}
     <div class="space-y-3">
       {#each $activeWebpages as webpage (webpage.id)}
-        <div
-          class="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md hover:border-gray-300 transition-all duration-200"
-        >
-          <div class="flex gap-3">
-            <div class="flex-shrink-0">
-              {#if webpage.faviconUrl}
-                <img
-                  src={webpage.faviconUrl}
-                  alt={webpage.title}
-                  class="w-20 h-20 object-cover rounded-lg"
-                  on:error={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              {:else}
-                <div
-                  class="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center"
-                >
-                  <PhotoIcon className="w-10 h-10 text-gray-400" />
-                </div>
-              {/if}
-            </div>
-
-            <div class="flex-1 min-w-0">
-              <div class="flex items-start justify-between gap-2 mb-1">
-                <h3
-                  class="font-semibold text-gray-900 text-sm leading-snug line-clamp-2"
-                >
-                  {webpage.title || "Sin título"}
-                </h3>
-                <button
-                  on:click={() =>
-                    handleRemovePage($activeProject?.id || "", webpage.id)}
-                  class="flex-shrink-0 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                  title="Eliminar"
-                >
-                  <TrashIcon className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div class="flex items-start gap-2 mb-2">
-                <button
-                  on:click={() => extractFullMarkdown(webpage.url)}
-                  class="px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                  title="Extraer Markdown"
-                >
-                  Extraer Markdown
-                </button>
-              </div>
-
-              <div class="flex items-center gap-2 flex-wrap">
-                {#if webpage.faviconUrl}
-                  <img
-                    src={webpage.faviconUrl}
-                    alt=""
-                    class="w-4 h-4 rounded"
-                    on:error={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                {/if}
-                {#if webpage.url}
-                  <a
-                    href={webpage.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="text-xs text-blue-600 hover:underline truncate max-w-[200px]"
-                  >
-                    {(() => {
-                      try {
-                        return new URL(webpage.url).hostname;
-                      } catch {
-                        return webpage.url;
-                      }
-                    })()}
-                  </a>
-                {:else}
-                  <span class="text-xs text-gray-400">Sin URL</span>
-                {/if}
-                <span class="text-xs text-gray-400">•</span>
-                <span class="text-xs text-gray-500">
-                  {formatDate(webpage.addedAt)}
-                </span>
-              </div>
-
-              <div class="mt-1 text-xs text-gray-400">
-                ID: {webpage.id}
-              </div>
-            </div>
-          </div>
-        </div>
+      {console.log("webpage", webpage)}
+        <CardPage 
+      {webpage}
+      isMenuOpen={openMenuId === webpage.id}
+      on:toggleMenu={handleToggleMenu}
+      on:closeMenu={handleCloseMenu}
+      ondelete={() => handleDelete(webpage.id)}
+      onviewContent={() => handleViewContent(webpage)}
+      ongenerateAI={() => handleGenerateAI(webpage.url)}
+      
+    />
       {/each}
     </div>
   {/if}

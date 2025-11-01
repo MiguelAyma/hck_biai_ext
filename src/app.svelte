@@ -58,6 +58,9 @@
     extractRawMarkdown();
     extractImages();
     extractPlainTextMarkdown();
+
+    //extractPlainTextMarkdown()
+
   });
 
   async function switchView(view: ViewType) {

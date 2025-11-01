@@ -1,3 +1,4 @@
+import { projectsStore } from "../stores/projectsStore";
 import {
   fullMarkdownStore,
   textOnlyMarkdownStore,
@@ -6,6 +7,7 @@ import {
   plainTextMarkdownStore,
 } from "../stores/contentStore";
 import type { ImageData } from "../types/types";
+import { createPageId } from "../utils/createPageId";
 
 function extractFullMarkdownScript() {
   if (typeof TurndownService === "undefined") {
@@ -729,12 +731,14 @@ export async function extractPlainTextMarkdown(
   url?: string | null
 ): Promise<void> {
   plainTextMarkdownStore.setLoading(true);
-
+  console.log("Extracting plain text markdown from URL:", url);
   try {
     // Si se proporciona una URL, extraer de esa URL
     if (url && url.trim() !== "") {
       const markdown = await fetchAndExtractFromUrl(url);
       plainTextMarkdownStore.setContent(markdown);
+      //const idpage = createPageId(url);
+      //projectsStore.setStrippedMarkdown(proyectId!, idpage, markdown);
       console.log(
         "Plain text markdown extracted from URL:",
         markdown.substring(0, 200) + "..."
