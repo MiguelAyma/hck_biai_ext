@@ -1,42 +1,36 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { marked } from 'marked';
-  
-  // 1. Importa STORES y TIPOS
-  import { chatStore, chatInitialState } from '../stores/chatStore';
-  import type { ChatMessage } from '../stores/chatStore';
-  import { activeProject, projectsStore, type Project } from '../stores/projectsStore';
-  
-  // (Si TypingIndicator está en español, puedes descomentar esta línea)
-  // import TypingIndicator from './typingIndicator.svelte';
+  import { chatStore } from '../stores/chatStore';
+  import type { ChatMessage, ChatListItem } from '../stores/chatStore';
+  import { projectsStore } from '../stores/projectsStore';
+  import type { Project } from '../stores/projectsStore';
+  import { localActiveProject } from '../stores/activeProjectChat';
+  import TypingIndicator from './typingIndicator.svelte';
+  import Send2Icon from '../icons/send2Icon.svelte';
+  import ProjectSelector from './projectSelector.svelte';
 
-  // --- (Estado local de UI) ---
-  let inputValue: string = "";
-  let chatLogElement: HTMLDivElement;
+  // Estado del chat
+  let chatContainer: HTMLDivElement;
   let textareaElement: HTMLTextAreaElement;
-  
-  // ¡NUEVO! Estado para la sidebar
-  let isSidebarHidden: boolean = false;
+  let inputValue: string = '';
+  let isSidebarOpen: boolean = false;
 
-  // --- (Valores del Store de CHAT) ---
-  let statusInfo: string = chatInitialState.statusInfo;
-  let rawMarkdown: string = chatInitialState.rawMarkdown;
-  let chatHistory: ChatMessage[] = chatInitialState.chatHistory;
-  let isLoading: boolean = chatInitialState.isLoading;
-  let isSessionReady: boolean = chatInitialState.isSessionReady;
-  let chatSessionId: string | null = chatInitialState.chatSessionId;
-  let chatList: { id: string, title: string }[] = chatInitialState.chatList;
+  // Valores del store de chat
+  let statusInfo: string = '';
+  let chatHistory: ChatMessage[] = [];
+  let isLoading: boolean = false;
+  let isSessionReady: boolean = false;
+  let chatSessionId: string | null = null;
+  let chatList: ChatListItem[] = [];
 
-  // --- (Valores del Store de PROYECTOS) ---
+  // Valores del store de proyectos
   let allProjects: Project[] = [];
-  let isLoadingProjects: boolean = true;
-  let isLoading2 = false; // (Para el botón de seed)
+  let currentActiveProject: Project | null = null;
 
-  // --- (Suscripciones a Stores) ---
-  
-  chatStore.subscribe(state => {
+  // Suscripciones
+  const unsubscribeChat = chatStore.subscribe(state => {
     statusInfo = state.statusInfo;
-    rawMarkdown = state.rawMarkdown;
     isLoading = state.isLoading;
     isSessionReady = state.isSessionReady;
     chatSessionId = state.chatSessionId;
@@ -48,30 +42,44 @@
     }
   });
 
-  projectsStore.subscribe(state => {
+  const unsubscribeProjects = projectsStore.subscribe(state => {
     allProjects = state.projects;
-    isLoadingProjects = state.isLoading;
+    
+    // Inicializar con el primer proyecto si no hay uno activo
+    if (state.projects.length > 0) {
+      localActiveProject.initializeWithFirstProject(state.projects);
+    }
   });
 
-  // --- (Lógica de UI) ---
-  
-  // ¡NUEVO! Función para ocultar/mostrar la sidebar
-  function toggleSidebar() {
-    isSidebarHidden = !isSidebarHidden;
-  }
+  const unsubscribeActiveProject = localActiveProject.subscribe(project => {
+    currentActiveProject = project;
+  });
 
-  async function autoScroll() {
+  onMount(() => {
+    window.addEventListener('message', handleWindowMessage);
+    window.parent.postMessage({ action: 'getChatListRequest' }, '*');
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('message', handleWindowMessage);
+    unsubscribeChat();
+    unsubscribeProjects();
+    unsubscribeActiveProject();
+  });
+
+  async function autoScroll(): Promise<void> {
     await tick();
-    if (chatLogElement) {
-      chatLogElement.scrollTop = chatLogElement.scrollHeight;
+    if (chatContainer) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
     }
   }
 
-  function adjustHeight() {
+  function adjustHeight(): void {
     if (!textareaElement) return;
     textareaElement.style.height = 'auto';
     const scrollHeight = textareaElement.scrollHeight;
     const maxHeight = 120;
+
     if (scrollHeight > maxHeight) {
       textareaElement.style.height = maxHeight + 'px';
       textareaElement.style.overflowY = 'auto';
@@ -81,109 +89,126 @@
     }
   }
 
-  function handleInput() {
+  function handleInput(): void {
     adjustHeight();
   }
 
+  function handleSend(): void {
+    const message = inputValue.trim();
+    if (!message || isLoading || !isSessionReady) return;
 
-  const misContenidos = [
-    {
-      titulo: "Guía de Estilo de JavaScript",
-      contenido: "El código debe ser claro y legible..."
-    }, 
-
-  ];
-
-  // Click en un Chat de la Sidebar (para chats ANTIGUOS)
-  function handleLoadChat(id: string) {
-    if (isLoading) return;
-    console.log(`Svelte: Cargando chat ${id}`);
-    chatStore.startLoading(id, false); 
+    chatStore.startSending(message);
     window.parent.postMessage({
-      action: 'requestChatInit',
-      requestId: id,
-      misContenidos: $activeProject?.contentProject
+      action: 'requestChatSend',
+      requestId: chatSessionId,
+      userText: message
     }, '*');
+    
+    inputValue = '';
+    setTimeout(adjustHeight, 0);
   }
 
-  // Botón: "+ Nuevo Chat" (Vuelve a la pantalla de selección de proyecto)
-  function handleNewChatClick() {
-    console.log("Svelte: Preparando para nuevo chat...");
-    chatStore.clearActiveChat();
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   }
-  
-  // ¡NUEVO! Se llama al hacer clic en un Proyecto.
-  function handleCreateSessionFromProject(project: Project) {
-    if (isLoading) return;
 
-    // const dynamicContenidos = project.webpages.map(webpage => ({
-    //   titulo: webpage.title,
-    //   contenido: webpage.markdownSummaryLong 
-    // }));
+  // Crear nuevo chat con el proyecto activo actual
+  function handleNewChat(): void {
+    if (isLoading || !currentActiveProject) return;
 
-    // if (dynamicContenidos.length === 0) {
-    //   alert(`El proyecto "${project.name}" no tiene páginas para chatear.`);
-    //   return;
-    // }
-
-    const newSessionId = `chat_proj_${project.id}_${Date.now()}`;
-    console.log(`Svelte: Creando nuevo chat desde proyecto "${project.name}"`);
-    chatStore.startLoading(newSessionId, true); 
-
+    const newSessionId = currentActiveProject.id;
+    console.log(`Creando nuevo chat con proyecto "${currentActiveProject.name}"`);
+    
+    chatStore.startLoading(newSessionId, true);
+    
+    // Agregar inmediatamente a la lista de chats con título temporal
+    const tempChatItem: ChatListItem = {
+      id: newSessionId,
+      title: `Chat - ${currentActiveProject.name}`,
+      projectId: currentActiveProject.id
+    };
+    chatStore.setChatList([tempChatItem, ...chatList]);
+    
     window.parent.postMessage({
       action: 'requestChatInit',
       requestId: newSessionId,
-      misContenidos:  $activeProject?.contentProject
+      misContenidos: currentActiveProject.contentProject
     }, '*');
+
+    isSidebarOpen = false;
   }
 
-  onMount(() => {
-    console.log("context iiy: ", $activeProject?.contentProject)
-  });
-  // Botón: "X" (para borrar)
-  function handleDestroyClick(id: string) {
+  // Cargar chat existente y cambiar el proyecto activo según el chat
+  function handleLoadChat(id: string): void {
     if (isLoading) return;
-    console.log(`Svelte: Solicitando destruir sesión ${id}`);
+    console.log(`Cargando chat ${id}`);
+    
+    // Encontrar el chat en la lista para obtener su projectId
+    const chat = chatList.find(c => c.id === id);
+    if (chat) {
+      const project = allProjects.find(p => p.id === chat.projectId);
+      if (!project) return;
+      // Cambiar el proyecto activo local según el chat seleccionado
+      localActiveProject.setActiveProject(project);
+    }
+    
     chatStore.startLoading(id, false);
-    chatStore.setError("Destruyendo sesión...");
+    
+    // Obtener el proyecto actual para enviar el contexto
+    const project = allProjects.find(p => p.id === chat?.projectId);
+    
+    console.log("project sidbar",project?.contentProject);
+    window.parent.postMessage({
+      action: 'requestChatInit',
+      requestId: id,
+      misContenidos: project?.contentProject || ''
+    }, '*');
+
+    isSidebarOpen = false;
+  }
+
+  // Eliminar chat
+  function handleDeleteChat(id: string): void {
+    if (isLoading) return;
+    console.log(`Eliminando chat ${id}`);
+    
+    chatStore.startLoading(id, false);
     window.parent.postMessage({
       action: 'requestChatDestroy',
       requestId: id
     }, '*');
   }
 
-  // Botón: "Enviar"
-  function handleSend() {
-
-    console.log("context: ", $activeProject?.contentProject)
-    const userText = inputValue.trim();
-    if (!userText || isLoading || !isSessionReady) return;
-    chatStore.startSending(userText);
-    window.parent.postMessage({
-      action: 'requestChatSend',
-      requestId: chatSessionId,
-      userText: userText
-    }, '*');
-    inputValue = "";
-    setTimeout(adjustHeight, 0);
+  // Toggle sidebar
+  function toggleSidebar(): void {
+    isSidebarOpen = !isSidebarOpen;
   }
-  
-  // Tecla "Enter"
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      handleSend();
+
+  // Manejar cambio de proyecto desde el selector
+  function handleProjectChanged(project: Project): void {
+    localActiveProject.setActiveProject(project);
+    
+    // Si hay una sesión activa, crear una nueva con el proyecto seleccionado
+    if (chatSessionId) {
+      handleNewChat();
     }
   }
 
-  // --- 2. Lógica (Receptor de Mensajes) ---
-  function handleWindowMessage(event: MessageEvent) {
+  // Manejar mensajes del background
+  function handleWindowMessage(event: MessageEvent): void {
     const { action } = event.data;
+    
     if (action === 'chatListResponse') {
-      chatStore.setChatList(event.data.chatList);
+      const receivedChatList: ChatListItem[] = event.data.chatList || [];
+      chatStore.setChatList(receivedChatList);
       return;
     }
+
     const { requestId } = event.data;
+    
     if (action === 'chatDestroyed') {
       if (requestId === chatSessionId) {
         chatStore.setDestroyed();
@@ -191,358 +216,293 @@
       window.parent.postMessage({ action: 'getChatListRequest' }, '*');
       return;
     }
-    if (requestId !== chatSessionId) {
-      return; 
-    }
+
+    if (requestId !== chatSessionId) return;
+
     const { error, message, history, lastMessage, response } = event.data;
+    
     switch (action) {
-      case 'chatReady': chatStore.setSessionReady(); break;
-      case 'chatHistoryRestored': chatStore.setHistoryRestored(history, lastMessage); break;
-      case 'chatResponse': chatStore.setResponse(response); break;
-      case 'chatQuotaOverflow': chatStore.setQuotaOverflow(message); break;
-      
-      // --- ¡ELIMINADO! ---
-      // 'case 'chatSystemUpdated': ...' ha sido borrado.
-      
-      case 'chatError': chatStore.setError(error); break;
+      case 'chatReady':
+        chatStore.setSessionReady();
+        // Solicitar actualización de la lista de chats para obtener el título actualizado
+        window.parent.postMessage({ action: 'getChatListRequest' }, '*');
+        break;
+      case 'chatHistoryRestored':
+        chatStore.setHistoryRestored(history, lastMessage);
+        break;
+      case 'chatResponse':
+        chatStore.setResponse(response);
+        // Actualizar título del chat después de la primera respuesta
+        if (chatHistory.length === 0) {
+          window.parent.postMessage({ action: 'getChatListRequest' }, '*');
+        }
+        break;
+      case 'chatQuotaOverflow':
+        chatStore.setQuotaOverflow(message);
+        break;
+      case 'chatError':
+        chatStore.setError(error);
+        break;
     }
   }
 
-  // --- 3. Lógica (Ciclo de Vida) ---
-  onMount(() => {
-    window.addEventListener('message', handleWindowMessage);
-    window.parent.postMessage({ action: 'getChatListRequest' }, '*');
-  });
-  
-  onDestroy(() => {
-    window.removeEventListener('message', handleWindowMessage);
-  });
-
-
+  // Obtener el nombre del proyecto por ID
+  function getProjectName(projectId: string): string {
+    const project = allProjects.find(p => p.id === projectId);
+    return project?.name || 'Proyecto';
+  }
 </script>
 
-<style>
-  :global(body, html) {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  .layout-wrapper {
-    display: flex;
-    font-family: sans-serif;
-    height: 100vh;
-    width: 100vw;
-    box-sizing: border-box;
-    overflow: hidden;
-  }
+<div class="flex flex-col h-full content-container relative">
 
-  /* --- Sidebar (Lista de Sesiones) --- */
-  .sidebar {
-    width: 240px;
-    flex-shrink: 0;
-    border-right: 1px solid #e0e0e0;
-    background: #f7f7f7;
-    display: flex;
-    flex-direction: column;
-    /* ¡NUEVO! Transición para colapsar */
-    transition: width 0.2s ease, opacity 0.2s ease;
-    opacity: 1;
-  }
-  /* ¡NUEVO! Estilo colapsado */
-  .sidebar.hidden {
-    width: 0;
-    opacity: 0;
-    overflow: hidden;
-  }
+  {#if isSidebarOpen}
+    <div 
+      class="fixed inset-0 bg-black bg-opacity-50 z-40"
+      on:click={toggleSidebar}
+      on:keydown={(e) => e.key === 'Escape' && toggleSidebar()}
+      role="button"
+      tabindex="0"
+      aria-label="Cerrar sidebar"
+    ></div>
+  {/if}
 
-  .sidebar-header {
-    padding: 12px;
-    border-bottom: 1px solid #e0e0e0;
-  }
-  .sidebar-header button {
-    width: 100%;
-    padding: 8px 12px;
-    background-color: #333;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .sidebar-header button:hover {
-    background-color: #555;
-  }
-  .sidebar-list {
-    flex-grow: 1;
-    overflow-y: auto;
-  }
-  .chat-list-item {
-    padding: 12px;
-    cursor: pointer;
-    border-bottom: 1px solid #e0e0e0;
-    font-size: 13px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    word-break: break-word;
-  }
-  .chat-list-item.active {
-    background: #e0e0e0;
-    font-weight: 600;
-  }
-  .chat-list-item:hover {
-    background: #ececec;
-  }
-  .chat-list-item button {
-    flex-shrink: 0;
-    background: #d9534f;
-    color: white;
-    border: none;
-    cursor: pointer;
-    font-size: 10px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    margin-left: 8px;
-  }
-  .main-content {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100%; 
-    overflow: hidden;
-  }
-  .welcome-placeholder {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    height: 100%;
-    padding: 20px;
-    box-sizing: border-box;
-    text-align: center;
-    color: #666;
-  }
-  .welcome-placeholder #status {
-    margin-top: 15px;
-    font-style: italic;
-  }
-  .chat-message .markdown-content > *:first-child {
-    margin-top: 0;
-  }
-  .chat-message .markdown-content > *:last-child {
-    margin-bottom: 0;
-  }
-  .chat-message .markdown-content ul,
-  .chat-message .markdown-content ol {
-    padding-left: 1.2em;
-  }
-
-  /* --- Estilos para la lista de proyectos (sin cambios) --- */
-  .project-list {
-    width: 100%;
-    max-width: 360px;
-    max-height: 300px;
-    overflow-y: auto;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    background: #fff;
-    margin-top: 20px;
-  }
-  .project-item {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 12px 16px;
-    background: #fff;
-    border: none;
-    border-bottom: 1px solid #e0e0e0;
-    cursor: pointer;
-    box-sizing: border-box; 
-  }
-  .project-item:last-child {
-    border-bottom: none;
-  }
-  .project-item:hover {
-    background: #f9f9f9;
-  }
-  .project-item:disabled {
-    opacity: 0.5;
-    background: #f0f0f0;
-  }
-  .project-item .name {
-    font-weight: 600;
-    color: #333;
-    font-size: 1em;
-  }
-  .project-item .count {
-    font-size: 0.85em;
-    color: #777;
-    margin-top: 2px;
-  }
-  .seed-button {
-    margin-top: 16px;
-    padding: 8px 12px;
-    background-color: #555;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-  }
-  .seed-button:disabled {
-    background-color: #aaa;
-  }
-
-  /* --- ¡NUEVO! Estilo para el botón de colapsar --- */
-  .sidebar-toggle-btn {
-    background: none;
-    border: none;
-    padding: 0 4px;
-    cursor: pointer;
-    margin-right: 10px;
-    border-radius: 4px;
-  }
-  .sidebar-toggle-btn svg {
-    width: 20px;
-    height: 20px;
-    color: #555;
-    stroke-width: 2.5;
-  }
-  .sidebar-toggle-btn:hover {
-    background-color: #f0f0f0;
-  }
-</style>
-
-<div class="layout-wrapper content-container">
-
-  <div class="sidebar" class:hidden={isSidebarHidden}>
-    <div class="sidebar-header">
-      <button on:click={handleNewChatClick}>
-        + New Chat
+  <div 
+    class="fixed top-0 left-0 h-full w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out z-50 flex flex-col"
+    class:translate-x-0={isSidebarOpen}
+    class:-translate-x-full={!isSidebarOpen}
+  >
+    <div class="p-4 border-b border-gray-200">
+      <button
+        on:click={handleNewChat}
+        disabled={isLoading || !currentActiveProject}
+        class="w-full px-4 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+        </svg>
+        Nuevo Chat
       </button>
     </div>
-    <div class="sidebar-list">
-      {#each chatList as chat}
-        <div 
-          class="chat-list-item" 
-          class:active={chat.id === chatSessionId} 
-          on:click={() => handleLoadChat(chat.id)}
-          title={chat.title}
-        >
-          <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            {chat.title}
-          </span>
-          <button 
-            on:click|stopPropagation={() => handleDestroyClick(chat.id)}
-            disabled={isLoading && chat.id === chatSessionId}
-          >X</button>
+
+    <!-- Chat List -->
+    <div class="flex-1 overflow-y-auto p-2">
+      {#if chatList.length === 0}
+        <div class="text-center text-sm text-gray-500 py-8">
+          No hay chats guardados
         </div>
-      {/each}
+      {:else}
+        {#each chatList as chat (chat.id)}
+          <div 
+            class="group relative mb-2 p-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+            class:bg-indigo-50={chat.id === chatSessionId}
+            on:click={() => handleLoadChat(chat.id)}
+            on:keydown={(e) => e.key === 'Enter' && handleLoadChat(chat.id)}
+            role="button"
+            tabindex="0"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-gray-900 truncate">
+                  {chat.title}
+                </div>
+                <div class="text-xs text-gray-500 mt-1">
+                  {getProjectName(chat.projectId)}
+                </div>               
+              </div>
+              <button
+                on:click|stopPropagation={() => handleDeleteChat(chat.id)}
+                disabled={isLoading && chat.id === chatSessionId}
+                class="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                title="Eliminar chat"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        {/each}
+      {/if}
     </div>
   </div>
 
-  <div class="main-content">
-    
+  <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 z-10">
+   
+    <button
+      on:click={toggleSidebar}
+      class="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors relative"
+      title="Historial de chats"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+      </svg>
+    </button>
+
+    <div class="flex-1">
+      <ProjectSelector projectChanged={handleProjectChanged} activeProject={currentActiveProject} />
+    </div>
+  </div>
+
+  <!-- Chat Container -->
+  <div class="chat-container flex-1 p-4 overflow-y-auto" bind:this={chatContainer}>
     {#if !chatSessionId}
-      <div class="welcome-placeholder">
+      <!-- Welcome Screen -->
+      <div class="welcome-message text-center py-12">
         <div class="w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-          <img src="icon1.png" alt="Botsi" style="width: 64px; height: 64px;" />
+          <img src="icon1.png" alt="Botsi" />
         </div>
         <h3 class="text-lg font-semibold text-gray-800 mb-2">
-          Hola, soy Botsi
+          Hola soy Botsi
         </h3>
-        <p class="text-sm text-gray-600">Selecciona un proyecto para comenzar a chatear:</p>
-        
-        <div class="project-list">
-          {#if isLoadingProjects}
-            <div style="padding: 20px; color: #888;">Cargando proyectos...</div>
-          {:else if allProjects.length === 0}
-            <div style="padding: 20px; color: #888;">
-              No tienes proyectos.
-            </div>
+        <p class="text-sm text-gray-600 mb-4">
+          {#if !currentActiveProject}
+            Selecciona un proyecto para comenzar
           {:else}
-            {#each allProjects as project (project.id)}
-              <button 
-                class="project-item"
-                on:click={() => handleCreateSessionFromProject(project)}
-                disabled={isLoading}
-              >
-                <div class="name">{project.name}</div>
-                <div class="count">{project.webpages.length} páginas</div>
-              </button>
-            {/each}
+            Haz clic en "Nuevo Chat" o en el menú para comenzar
           {/if}
-        </div>
-        
-
-
-        <div id="status" style="margin-top: 16px;">{statusInfo}</div>
-      </div>
-    
-    {:else}
-      <div class="flex flex-col h-full content-container" style="height: 100%;">
-        
-        <div class="px-4 py-2 border-b border-gray-200 bg-white text-sm text-gray-600 italic flex items-center">
-          
-          <button title="Ocultar/Mostrar chats" class="sidebar-toggle-btn" on:click={toggleSidebar}>
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          
-          <span>{statusInfo}</span>
-        </div>
-
-        <div class="chat-container flex-1 p-4 overflow-y-auto" bind:this={chatLogElement}>
-          {#each chatHistory as message (message.content + Math.random())}
-            {#if message.role === 'error' || message.role === 'system-warning'}
-              <div class="text-center text-xs text-red-600 my-2 p-2 bg-red-50 rounded-md">
-                {message.content}
-              </div>
-            {:else if message.role === 'user' || message.role === 'assistant'}
-              <div class="chat-message flex w-full mb-4 {message.role === 'user' ? 'justify-end' : 'justify-start'}">
-                <div 
-                  class="px-5 py-3 rounded-2xl shadow-sm {message.role === 'user' ? 'bg-gray-800 text-white rounded-br-md' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-md'}" 
-                  style="max-width: 75%"
-                >
-                  {#if message.role === 'user'}
-                    {message.content}
-                  {:else}
-                    <div class="markdown-content">
-                      {@html marked.parse(message.content)}
-                    </div>
-                  {/if}
-                </div>
-              </div>
-            {/if}
-          {/each}
-          
-          {#if isLoading}
-             {/if}
-        </div>
-
-        <div class="bg-white border-t border-gray-200 px-4 py-3 flex gap-2 items-end">
-          <textarea
-            bind:this={textareaElement}
-            bind:value={inputValue}
-            on:input={handleInput}
-            on:keydown={handleKeydown}
-            placeholder={isSessionReady ? "Write your question..." : "Loading session..."}
-            class="flex-1 p-2 text-gray-700 transition-colors resize-none"
-            rows="1"
-            style="border: none; outline: none; min-height: 40px; max-height: 120px; line-height: 1.5;"
-            disabled={!isSessionReady || isLoading}
-          />
+        </p>
+        {#if currentActiveProject}
           <button
-            on:click={handleSend}
-            class="px-5 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-700 transition-all flex-shrink-0 disabled:bg-gray-400"
-            disabled={!isSessionReady || isLoading || !inputValue.trim()}
+            on:click={handleNewChat}
+            disabled={isLoading}
+            class="px-6 py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-700 transition-all disabled:bg-gray-400 inline-flex items-center gap-2"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
             </svg>
+            Comenzar Chat
           </button>
-        </div>
+        {/if}
       </div>
+    {:else}
+      <!-- Chat Messages -->
+      {#if isLoading && chatHistory.length === 0}
+        <div class="text-center py-12">
+          <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <p class="mt-4 text-sm text-gray-600">{statusInfo}</p>
+        </div>
+      {:else}
+        {#each chatHistory as message, index (message.content + index)}
+          {#if message.role === 'error' || message.role === 'system-warning'}
+            <div class="text-center text-xs text-red-600 my-2 p-2 bg-red-50 rounded-md">
+              {message.content}
+            </div>
+          {:else if message.role === 'user' || message.role === 'assistant'}
+            <div class="chat-message flex w-full mb-4 {message.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-in">
+              <div 
+                class="px-5 py-3 rounded-2xl shadow-sm {message.role === 'user' ? 'bg-gray-800 text-white rounded-br-md' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-md'}" 
+                style="max-width: 75%"
+              >
+                {#if message.role === 'user'}
+                  {message.content}
+                {:else}
+                  <div class="markdown-content prose prose-sm max-w-none">
+                    {@html marked.parse(message.content)}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/if}
+        {/each}
+        
+        {#if isLoading}
+          <TypingIndicator />
+        {/if}
+      {/if}
     {/if}
   </div>
+
+  <!-- Input Area -->
+  <div class="bg-white border-t border-gray-200 px-4 py-3 flex gap-2 items-end">
+    <textarea
+      bind:this={textareaElement}
+      bind:value={inputValue}
+      on:input={handleInput}
+      on:keydown={handleKeydown}
+      placeholder={chatSessionId ? (isSessionReady ? "Escribe tu pregunta..." : "Cargando sesión...") : "Selecciona un proyecto y crea un chat"}
+      class="flex-1 p-2 text-gray-700 transition-colors resize-none"
+      rows="1"
+      style="border: none; outline: none; min-height: 40px; max-height: 120px; line-height: 1.5;"
+      disabled={!isSessionReady || isLoading || !chatSessionId}
+    />
+    <button
+      on:click={handleSend}
+      class="px-5 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-700 transition-all flex-shrink-0 disabled:bg-gray-400 disabled:cursor-not-allowed"
+      disabled={!isSessionReady || isLoading || !inputValue.trim() || !chatSessionId}
+    >
+      <Send2Icon className="w-5 h-5" />
+    </button>
+  </div>
 </div>
+
+<style>
+  .animate-slide-in {
+    animation: slideIn 0.3s ease-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .markdown-content :global(p) {
+    margin-bottom: 0.75rem;
+  }
+
+  .markdown-content :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .markdown-content :global(ul),
+  .markdown-content :global(ol) {
+    margin-left: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .markdown-content :global(li) {
+    margin-bottom: 0.25rem;
+  }
+
+  .markdown-content :global(code) {
+    background-color: #f3f4f6;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+  }
+
+  .markdown-content :global(pre) {
+    background-color: #1f2937;
+    color: #f9fafb;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    margin-bottom: 0.75rem;
+  }
+
+  .markdown-content :global(pre code) {
+    background-color: transparent;
+    padding: 0;
+    color: inherit;
+  }
+
+  .markdown-content :global(h1),
+  .markdown-content :global(h2),
+  .markdown-content :global(h3) {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+
+  .markdown-content :global(blockquote) {
+    border-left: 4px solid #e5e7eb;
+    padding-left: 1rem;
+    margin: 0.75rem 0;
+    color: #6b7280;
+  }
+</style>

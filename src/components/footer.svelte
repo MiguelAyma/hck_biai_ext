@@ -18,7 +18,7 @@
 
 <div class="bg-white border-t border-gray-200">
   <!-- Botones de Navegación -->
-  <div class="px-4 py-3 flex items-center justify-between gap-2">  
+  <div class="p-3 flex items-center justify-between gap-2">  
     <button
       on:click={() => switchView('investigation')}
       class="relative px-3 py-1.5 {currentView === 'investigation' ? 'bg-[#ECECEC]' : 'bg-white border border-gray-300'} text-gray-700 rounded-2xl font-medium text-sm hover:bg-gray-200 transition-colors flex items-center gap-1"

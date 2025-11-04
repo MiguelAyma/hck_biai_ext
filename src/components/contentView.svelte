@@ -91,8 +91,6 @@
           currentParent.paragraphs.push({ id: pId, text: trimmedLine });
           pCounters[currentParent.id]++;
         } else { 
-          // --- MODIFICACIÓN IMPORTANTE ---
-          // Cambiamos ' ' por '\n' para preservar saltos de línea (ej. en listas)
           currentParent.content += trimmedLine + '\n'; 
         }
       }
@@ -544,9 +542,8 @@
         <p class="text-gray-500 text-sm">Esto puede tomar unos segundos...</p>
       </div>
     {:else}
-      <!-- Barra de herramientas de traducción -->
       <div class="sticky top-0 bg-white border-b border-gray-200 p-3 z-10">
-        <div class="flex items-center justify-between gap-3">
+        <!-- <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 flex-1">
             {#if translatedContent}
               <div class="flex items-center gap-2 text-sm text-gray-600">
@@ -575,9 +572,7 @@
                 </svg>
                 Traducir
               </button>
-            {/if}
-
-            <!-- Botón de descarga PDF -->
+            {/if}          
             <button
               on:click={downloadAsPDF}
               disabled={isDownloadingPDF || !displayContent}
@@ -605,11 +600,11 @@
           {/if}
         </div>
 
-        <!-- Selector de idiomas -->
+       
         {#if showLanguageSelector}
           <div class="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200 animate-fadeIn">
             <div class="grid grid-cols-2 gap-4 mb-4">
-              <!-- Idioma origen -->
+             
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-2">Desde</label>
                 <select
@@ -620,9 +615,7 @@
                     <option value={lang.code}>{lang.flag} {lang.name}</option>
                   {/each}
                 </select>
-              </div>
-
-              <!-- Idioma destino -->
+              </div>             
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-2">Hacia</label>
                 <select
@@ -668,7 +661,7 @@
               </button>
             </div>
           </div>
-        {/if}
+        {/if} -->
       </div>
 
       <!-- Contenido traducido o IA -->

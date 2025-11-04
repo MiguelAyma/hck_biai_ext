@@ -16,6 +16,7 @@
   import SparklesIcon from "../icons/sparklesIcon.svelte";
   import CardPage from "./cardPage.svelte";
   import { createPageId } from "../utils/createPageId";
+  import CircleCheckIcon from "../icons/circleCheckIcon.svelte";
 
   let isAdding = false;
   let showProjectSelector = false;
@@ -182,27 +183,13 @@
           <button
             on:click={() => (showProjectsMenu = !showProjectsMenu)}
             class="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all group"
-          >
-            <!-- <span class="text-2xl">📁</span> -->
+          >       
             <div class="text-left">
               <div
                 class="text-sm font-semibold text-gray-900 flex items-center gap-1"
               >
                 {$activeProject?.name || "General"}
-                <svg
-                  class="w-4 h-4 text-gray-400 transition-transform"
-                  class:rotate-180={showProjectsMenu}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
+                <CircleCheckIcon className="w-4 h-4 text-gray-400"/>
               </div>
               <div class="text-xs text-gray-500">
                 {$activeProject?.webpages.length || 0} páginas

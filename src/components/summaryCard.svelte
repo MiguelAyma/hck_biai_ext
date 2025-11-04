@@ -21,23 +21,23 @@
   }
 </script>
 
-<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover-lift">
+<div class="bg-white border border-slate-200 rounded-2xl p-2 shadow-sm hover-lift">
   <div class="flex items-start justify-between mb-4">
     <div class="flex items-center gap-4">
-      <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg">
+      <!-- <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-lg">
         {icon}
-      </div>
+      </div> -->
       <div>
         <h3 class="text-lg font-semibold text-gray-800">{title}</h3>
         <p class="text-sm text-gray-500">{wordCount} palabras aprox.</p>
       </div>
     </div>
-    <button
+    <!-- <button
       on:click={copyToClipboard}
       class="px-4 py-2 bg-gradient-to-r from-slate-50 to-blue-50 border border-slate-200 rounded-xl text-sm font-semibold text-black transition-all hover:from-slate-100 hover:to-blue-100"
     >
       {copyButtonText}
-    </button>
+    </button> -->
   </div>
   <div class="prose prose-sm max-w-none text-gray-700 leading-relaxed">
     {@html htmlContent}
