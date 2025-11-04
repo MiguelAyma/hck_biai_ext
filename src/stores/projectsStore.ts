@@ -1,4 +1,3 @@
-//projectsStore.ts
 import { createPageId } from "../utils/createPageId";
 import { writable, derived } from "svelte/store";
 import type { Writable } from "svelte/store";
